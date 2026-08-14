@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl Móvil — Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-mobile-page">
+    <div class="fc-mobile-app">
+        <header id="fc-m-header"></header>
+        <div class="fc-m-body space-y-3" id="view"></div>
+        <nav id="fc-m-nav"></nav>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones", "finanzas"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderMobileChrome("dash-m", "Dashboard");
+
+        function card(label, value, hint) {
+            return '<div class="bg-white border rounded-2xl p-3"><p class="text-[10px] uppercase font-bold text-slate-400">' + label + '</p><p class="text-lg font-extrabold">' + value + '</p><p class="text-[10px] text-slate-500">' + hint + "</p></div>";
+        }
+
+        function render() {
+            const s = FleetApp.dashboardStats();
+            const colors = { programada: "#f59e0b", transito: "#3b82f6", entregado: "#f97316", cerrada: "#10b981", anulada: "#94a3b8" };
+            const pipe = s.pipeline.map(function (p) {
+                const w = Math.max(8, Math.round((p.n / s.maxPipe) * 100));
+                return '<div class="flex items-center gap-2"><span class="w-[88px] shrink-0 text-[11px] font-semibold text-slate-600 leading-tight">' + p.label + '</span>' +
+                    '<div class="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden"><span class="block h-full rounded-full" style="width:' + w + "%;background:" + colors[p.key] + '"></span></div>' +
+                    '<span class="w-5 text-right text-xs font-extrabold">' + p.n + "</span></div>";
+            }).join("");
+            const alerts = s.alerts.slice(0, 4).map(function (a) {
+                return '<a href="' + a.hrefM + '" class="block bg-white border rounded-2xl p-3"><p class="text-xs font-bold">' + a.title + '</p><p class="text-[10px] text-slate-500">' + a.text + "</p></a>";
+            }).join("");
+            const clients = s.topClientes.slice(0, 4).map(function (c) {
+                const w = Math.max(8, Math.round((c.tarifa / s.maxCliente) * 100));
+                return '<div><div class="flex justify-between text-[11px] mb-0.5"><span class="font-semibold">' + c.name + "</span><span>" + FleetApp.formatCompactCLP(c.tarifa) + "</span></div><div class=\"fc-dash-bar\"><span style=\"width:" + w + '%"></span></div></div>';
+            }).join("");
+            const flotaLink = session.role === "finanzas"
+                ? '<a href="pantalla_liquidaciones_movil.html" class="block text-center text-xs font-bold text-emerald-700 border rounded-xl py-2 bg-white">Ir a cobros y liquidaciones</a>'
+                : '<a href="pantalla_flota_movil.html" class="block text-center text-xs font-bold text-emerald-700 border rounded-xl py-2 bg-white">Abrir flota y maestros</a>';
+            document.getElementById("view").innerHTML =
+                '<div class="grid grid-cols-2 gap-2">' +
+                card("Activos", s.activos, s.transito + " en GPS") +
+                card("Ingreso", FleetApp.formatCompactCLP(s.ingresos), "Margen " + s.margenPct + "%") +
+                card("Por cobrar", FleetApp.formatCompactCLP(s.porCobrar), s.listoFacturar + " facturables") +
+                card("POD OK", s.podRate + "%", s.otif + "% cierre") +
+                "</div>" +
+                '<div class="bg-white border rounded-2xl p-3 space-y-2.5"><p class="text-xs font-bold">Pipeline</p>' + pipe + "</div>" +
+                '<div class="bg-white border rounded-2xl p-3 space-y-2"><p class="text-xs font-bold">Clientes</p>' + clients + "</div>" +
+                '<div class="space-y-2"><p class="text-xs font-bold px-1">Alertas</p>' + (alerts || '<p class="text-xs text-slate-400">Sin alertas</p>') + "</div>" +
+                flotaLink;
+            FleetApp.icons();
+        }
+        render();
+    </script>
+</body>
+</html>

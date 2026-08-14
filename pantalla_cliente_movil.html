@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — App Cliente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="bg-[#070b14] flex items-center justify-center min-h-screen p-4">
+    <div class="fc-phone-shell w-full max-w-sm bg-slate-950 rounded-[40px] p-3 border border-white/10">
+        <div class="fc-phone-screen text-slate-800 rounded-[30px] overflow-hidden flex flex-col h-[720px] relative">
+            <div class="bg-slate-900 text-white px-6 py-2 flex justify-between items-center text-xs">
+                <span class="font-bold">09:41</span>
+                <div class="w-16 h-3 bg-slate-800 rounded-full"></div>
+                <div class="flex items-center gap-1.5"><i data-lucide="wifi" class="w-3.5 h-3.5"></i><i data-lucide="battery" class="w-3.5 h-3.5"></i></div>
+            </div>
+            <div class="bg-slate-900 text-white p-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div id="av" class="w-9 h-9 rounded-full bg-emerald-500 text-slate-950 font-bold flex items-center justify-center text-sm">EV</div>
+                    <div>
+                        <h2 id="cli-name" class="font-bold text-sm leading-tight">Cliente</h2>
+                        <p id="cli-co" class="text-[10px] text-emerald-400 font-medium"></p>
+                    </div>
+                </div>
+                <button type="button" id="to-web" class="text-[10px] text-emerald-300 border border-emerald-400/30 px-2 py-1 rounded-lg">Versión web</button>
+            </div>
+            <div id="view" class="flex-1 overflow-y-auto p-4 space-y-3"></div>
+            <div class="bg-white border-t border-slate-100 py-2 px-6 flex justify-around text-slate-400">
+                <button data-tab="list" class="tab text-emerald-600 flex flex-col items-center"><i data-lucide="package" class="w-5 h-5"></i><span class="text-[9px] font-bold">Embarques</span></button>
+                <button data-tab="track" class="tab flex flex-col items-center"><i data-lucide="map-pin" class="w-5 h-5"></i><span class="text-[9px]">Tracking</span></button>
+                <button data-tab="perfil" class="tab flex flex-col items-center"><i data-lucide="user" class="w-5 h-5"></i><span class="text-[9px]">Perfil</span></button>
+            </div>
+        </div>
+    </div>
+    <a href="index.html" class="fixed top-4 left-4 text-xs text-slate-400 hover:text-white">← Salir</a>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["cliente", "admin"]);
+        if (!session) throw new Error("auth");
+        const db0 = FleetApp.load();
+        const clientId = session.clientId || "c1";
+        const client = db0.clients.find(function (c) { return c.id === clientId; }) || db0.clients[0];
+        document.getElementById("av").textContent = session.initials;
+        document.getElementById("cli-name").textContent = session.name;
+        document.getElementById("cli-co").textContent = client.name;
+        const toWeb = document.getElementById("to-web");
+        if (toWeb) toWeb.addEventListener("click", function () { FleetApp.switchMode("web"); });
+        let tab = "list";
+        let currentId = null;
+
+        document.querySelectorAll(".tab").forEach(function (b) {
+            b.addEventListener("click", function () {
+                tab = b.getAttribute("data-tab");
+                document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("text-emerald-600"); });
+                b.classList.add("text-emerald-600");
+                render();
+            });
+        });
+
+        function mine() {
+            return FleetApp.load().ots.filter(function (o) { return o.clientId === clientId && o.status !== "anulada"; }).map(function (o) { return FleetApp.hydrateOt(o); });
+        }
+
+        function steps(status) {
+            const s = [
+                { k: "programada", l: "Programada" },
+                { k: "transito", l: "En tránsito" },
+                { k: "entregado", l: "Entregada" },
+                { k: "cerrada", l: "Cerrada" },
+            ];
+            const idx = Math.max(0, s.findIndex(function (x) { return x.k === status; }));
+            return '<div class="flex gap-1 flex-wrap">' + s.map(function (x, i) {
+                return '<span class="text-[10px] px-2 py-0.5 rounded-full ' + (i <= idx ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-400") + '">' + x.l + "</span>";
+            }).join("") + "</div>";
+        }
+
+        function render() {
+            const ots = mine();
+            const view = document.getElementById("view");
+            if (tab === "perfil") {
+                view.innerHTML =
+                    '<div class="bg-white p-4 rounded-2xl border space-y-2 text-sm"><p class="font-bold">' + client.name + '</p><p>RUT ' + client.rut + '</p><p>' + client.contact + '</p><p>' + client.phone + '</p><p class="text-xs text-slate-400">Solo ves tus propias OT. El tracking no muestra el resto de la flota.</p><a href="pantalla_cliente.html" class="block text-center mt-2 border rounded-lg py-2 text-xs font-semibold">Abrir portal web</a><button id="logout-m" class="w-full border rounded-lg py-2 text-xs">Cerrar sesión</button></div>';
+                document.getElementById("logout-m").addEventListener("click", FleetApp.logout);
+                FleetApp.icons();
+                return;
+            }
+            if (!ots.length) { view.innerHTML = '<p class="text-sm text-slate-400">Sin embarques</p>'; return; }
+            if (tab === "list") {
+                view.innerHTML = ots.map(function (o) {
+                    const st = FleetApp.statusMeta(o.status);
+                    return '<button data-id="' + o.id + '" class="w-full text-left bg-white p-4 rounded-2xl border space-y-2">' +
+                        '<div class="flex justify-between items-start"><p class="font-bold text-sm">' + o.id + '</p><span class="text-[10px] font-semibold px-2 py-0.5 rounded-full border ' + st.cls + '">' + st.label + '</span></div>' +
+                        '<p class="text-xs text-slate-500">' + o.origin.split(" - ")[0] + ' → ' + o.destination.split(" (")[0] + '</p>' +
+                        '<p class="text-[11px] font-mono text-slate-600">' + o.container + ' · Sello ' + o.seal + '</p></button>';
+                }).join("");
+                document.querySelectorAll("[data-id]").forEach(function (b) {
+                    b.addEventListener("click", function () { currentId = b.getAttribute("data-id"); tab = "track"; document.querySelectorAll(".tab").forEach(function (x) { x.classList.remove("text-emerald-600"); }); document.querySelector('[data-tab="track"]').classList.add("text-emerald-600"); render(); });
+                });
+                FleetApp.icons();
+                return;
+            }
+            const ot = (currentId && ots.find(function (o) { return o.id === currentId; })) || ots.find(function (o) { return o.status === "transito"; }) || ots[0];
+            currentId = ot.id;
+            const gps = FleetApp.load().gps[ot.truckId] || { speed: 0, location: "Sin señal", x: 50, y: 50 };
+            view.innerHTML =
+                '<select id="pick" class="w-full text-xs border rounded-xl px-3 py-2 bg-white">' + ots.map(function (o) { return '<option value="' + o.id + '"' + (o.id === ot.id ? " selected" : "") + ">" + o.id + " · " + FleetApp.statusMeta(o.status).label + "</option>"; }).join("") + "</select>" +
+                '<div class="bg-white p-4 rounded-2xl border space-y-3">' +
+                '<p class="text-[10px] uppercase font-bold text-emerald-700">Embarque ' + ot.id + '</p>' +
+                '<h3 class="font-bold text-sm">' + ot.container + ' · ' + ot.containerType + '</h3>' +
+                steps(ot.status) +
+                '<p class="text-xs text-slate-500">' + ot.origin + ' → ' + ot.destination + '</p>' +
+                '<p class="text-xs">Sello <span class="font-mono font-bold">' + ot.seal + '</span> · POD ' + FleetApp.podMeta(ot.pod).label + '</p></div>' +
+                '<div class="map-bg h-40 rounded-2xl relative overflow-hidden">' +
+                '<div class="absolute -translate-x-1/2 -translate-y-1/2" style="left:' + gps.x + '%;top:' + gps.y + '%"><div class="w-9 h-9 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center border-2 border-white"><i data-lucide="truck" class="w-4 h-4"></i></div></div>' +
+                '<div class="absolute left-3 bottom-3 bg-slate-900/90 text-white text-[10px] px-2 py-1 rounded-lg">' + gps.location + ' · ' + gps.speed + ' km/h</div></div>' +
+                '<a class="block text-center bg-emerald-600 text-white text-xs font-bold py-3 rounded-xl" href="' + FleetApp.trackingUrl(ot) + '" target="_blank">Abrir tracking público</a>' +
+                '<div class="bg-white p-4 rounded-2xl border space-y-2"><p class="text-xs font-bold uppercase text-slate-500">Documentos</p>' +
+                ot.docs.map(function (d) { const m = FleetApp.docStatusMeta(d.status); return '<div class="flex justify-between text-xs"><span>' + d.label.split(" ")[0] + '</span><span class="font-bold px-2 py-0.5 rounded ' + m.cls + '">' + m.label + '</span></div>'; }).join("") + "</div>";
+            document.getElementById("pick").addEventListener("change", function (e) { currentId = e.target.value; render(); });
+            FleetApp.icons();
+        }
+        render();
+    </script>
+</body>
+</html>

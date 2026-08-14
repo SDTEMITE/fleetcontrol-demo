@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tracking de carga — FleetControl</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app min-h-screen">
+    <header class="fc-track-hero text-white px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="bg-emerald-500 p-2 rounded-lg text-slate-950"><i data-lucide="truck" class="w-5 h-5"></i></div>
+            <div><p class="font-bold">FleetControl Tracking</p><p class="text-xs text-slate-400">Enlace temporal para el cliente</p></div>
+        </div>
+        <a href="index.html" class="text-xs text-slate-400 hover:text-white">Acceso operadores</a>
+    </header>
+    <main class="max-w-5xl mx-auto p-6 space-y-4">
+        <div id="box" class="bg-white rounded-2xl border overflow-hidden"></div>
+    </main>
+    <script src="js/app.js"></script>
+    <script>
+        const params = new URLSearchParams(location.search);
+        const token = params.get("token") || params.get("ot");
+        const db = FleetApp.load();
+        const link = (db.links_tracking_cliente || []).find(function (l) { return l.token_acceso === token; });
+        const otRaw = link
+            ? db.ots.find(function (o) { return o.id_orden_transporte === link.id_orden_transporte; })
+            : db.ots.find(function (o) { return o.trackingToken === token || o.id === token; });
+        const box = document.getElementById("box");
+        const demoNow = new Date("2026-08-13T00:00:00");
+
+        function statusCard(icon, title, text) {
+            return '<div class="p-12 text-center max-w-lg mx-auto">' +
+                '<div class="w-14 h-14 mx-auto mb-4 rounded-2xl bg-slate-100 text-slate-600 flex items-center justify-center"><i data-lucide="' + icon + '" class="w-7 h-7"></i></div>' +
+                '<h1 class="text-xl font-bold text-slate-800">' + title + '</h1>' +
+                '<p class="mt-2 text-sm text-slate-500 leading-relaxed">' + text + '</p>' +
+                '<a href="index.html" class="inline-block mt-6 text-xs font-semibold text-emerald-700 hover:text-emerald-800">Volver al acceso operadores</a>' +
+                '</div>';
+        }
+
+        if (!token || !otRaw) {
+            box.innerHTML = statusCard("link-2", "Enlace no válido", "Este link de seguimiento no existe o está mal copiado. Solicita un nuevo enlace a operaciones.");
+        } else {
+            const ot = FleetApp.hydrateOt(otRaw, db);
+            const closed = ot.status === "cerrada" || ot.status === "anulada";
+            const dateExpired = link && link.fecha_expiracion && new Date(link.fecha_expiracion) < demoNow;
+            const inactive = link && link.activo === false;
+
+            if (closed) {
+                const done = ot.status === "cerrada";
+                box.innerHTML = statusCard(
+                    done ? "package-check" : "ban",
+                    done ? "Embarque completado" : "Embarque cancelado",
+                    done
+                        ? "El embarque ha sido completado y el enlace ha caducado."
+                        : "Esta orden fue cancelada y el enlace de seguimiento ya no está vigente."
+                );
+            } else if (inactive || dateExpired) {
+                box.innerHTML = statusCard("clock", "Enlace caducado", "Este enlace de seguimiento ya no está vigente. Solicita uno nuevo a operaciones.");
+            } else {
+                const gps = db.gps[ot.truckId] || { speed: 0, location: "Sin señal", x: 50, y: 50 };
+                const steps = [
+                    { k: "programada", l: "Programada" },
+                    { k: "transito", l: "En tránsito" },
+                    { k: "entregado", l: "Entregada" },
+                    { k: "cerrada", l: "Cerrada" },
+                ];
+                const idx = Math.max(0, steps.findIndex(function (s) { return s.k === ot.status; }));
+                box.innerHTML =
+                    '<div class="p-6 border-b"><p class="text-xs text-emerald-700 font-bold uppercase">Embarque ' + ot.id + '</p><h1 class="text-2xl font-bold">' + ot.clientName + '</h1><p class="text-sm text-slate-500">' + ot.origin + ' → ' + ot.destination + '</p></div>' +
+                    '<div class="p-6 grid md:grid-cols-4 gap-3 text-sm">' +
+                    '<div><p class="text-xs text-slate-400">Contenedor</p><p class="font-mono font-bold">' + ot.container + '</p></div>' +
+                    '<div><p class="text-xs text-slate-400">Tipo / sello</p><p class="font-semibold">' + ot.containerType + ' · ' + ot.seal + '</p></div>' +
+                    '<div><p class="text-xs text-slate-400">Estado</p><p class="font-semibold">' + FleetApp.statusMeta(ot.status).label + '</p></div>' +
+                    '<div><p class="text-xs text-slate-400">Velocidad</p><p class="font-semibold">' + gps.speed + ' km/h</p></div></div>' +
+                    '<div class="px-6 pb-4 flex gap-2">' + steps.map(function (s, i) { return '<span class="text-[11px] px-2 py-1 rounded-full ' + (i <= idx ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-400") + '">' + s.l + '</span>'; }).join("") + '</div>' +
+                    '<div class="map-bg h-72 relative"><div class="absolute -translate-x-1/2 -translate-y-1/2" style="left:' + gps.x + '%;top:' + gps.y + '%"><div class="w-10 h-10 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center border-2 border-white"><i data-lucide="truck" class="w-5 h-5"></i></div></div>' +
+                    '<div class="absolute left-4 bottom-4 bg-slate-900/90 text-white text-xs px-3 py-2 rounded-lg">' + gps.location + '</div></div>' +
+                    '<p class="p-4 text-[11px] text-slate-400">Este enlace muestra solo esta carga. Token ' + ot.trackingToken + '. No incluye datos de otras unidades.</p>';
+            }
+        }
+        lucide.createIcons();
+    </script>
+</body>
+</html>

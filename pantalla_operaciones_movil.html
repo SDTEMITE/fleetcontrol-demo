@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl Móvil — OTs</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-mobile-page">
+    <div class="fc-mobile-app">
+        <header id="fc-m-header"></header>
+        <div class="fc-m-body space-y-3">
+            <div class="grid grid-cols-4 gap-2 text-center" id="kpis"></div>
+            <input id="q" class="w-full border rounded-xl px-3 py-2 text-sm" placeholder="Buscar OT, cliente, patente...">
+            <select id="f-status" class="w-full border rounded-xl px-3 py-2 text-sm">
+                <option value="">Todos los estados</option>
+                <option value="programada">Programada</option>
+                <option value="transito">En tránsito</option>
+                <option value="entregado">Entregada</option>
+                <option value="cerrada">Cerrada</option>
+                <option value="anulada">Cancelada</option>
+            </select>
+            <button id="btn-new" class="w-full bg-emerald-600 text-white text-sm font-bold py-2.5 rounded-xl">Nueva OT</button>
+            <div id="list" class="space-y-2"></div>
+        </div>
+        <nav id="fc-m-nav"></nav>
+    </div>
+    <div id="modal-ot" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center p-3">
+        <form id="form-ot" class="bg-white rounded-2xl w-full max-w-md max-h-[88vh] overflow-y-auto p-4 grid grid-cols-1 gap-2">
+            <div class="flex justify-between items-center"><h3 class="font-bold">Nueva OT</h3><button type="button" data-close="modal-ot">✕</button></div>
+            <select name="clientId" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <input name="date" type="date" value="2026-08-13" required class="border rounded-lg px-3 py-2 text-sm">
+            <select name="origin" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <select name="destination" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <input name="container" required placeholder="Contenedor" class="border rounded-lg px-3 py-2 text-sm uppercase">
+            <select name="containerType" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <input name="seal" required placeholder="Sello" class="border rounded-lg px-3 py-2 text-sm">
+            <select name="returnDepot" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <input name="returnDeadline" type="date" value="2026-08-20" required class="border rounded-lg px-3 py-2 text-sm">
+            <select name="truckId" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <select name="driverId" required class="border rounded-lg px-3 py-2 text-sm"></select>
+            <input name="tarifa" type="number" value="1200000" class="border rounded-lg px-3 py-2 text-sm">
+            <input name="costo" type="number" value="750000" class="border rounded-lg px-3 py-2 text-sm">
+            <input name="viatico" type="number" value="45000" class="border rounded-lg px-3 py-2 text-sm">
+            <button class="bg-emerald-600 text-white font-bold py-2.5 rounded-xl text-sm">Emitir OT</button>
+        </form>
+    </div>
+    <div id="modal-detail" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-end justify-center p-3">
+        <div class="bg-white rounded-2xl w-full max-w-md p-4 space-y-3">
+            <div class="flex justify-between"><h3 id="det-title" class="font-bold"></h3><button data-close="modal-detail">✕</button></div>
+            <div id="det-body" class="text-sm space-y-1"></div>
+            <div id="det-actions" class="flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones", "finanzas"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderMobileChrome("ops-m", "Órdenes de Transporte");
+        const db0 = FleetApp.load();
+        FleetApp.fillSelect(document.querySelector('[name="clientId"]'), FleetApp.optionsFrom(db0.clients, "id", function (c) { return c.name; }), "Cliente");
+        FleetApp.fillSelect(document.querySelector('[name="origin"]'), FleetApp.optionsFrom(db0.origins));
+        FleetApp.fillSelect(document.querySelector('[name="destination"]'), FleetApp.optionsFrom(db0.destinations));
+        FleetApp.fillSelect(document.querySelector('[name="containerType"]'), FleetApp.optionsFrom(db0.containerTypes));
+        FleetApp.fillSelect(document.querySelector('[name="returnDepot"]'), FleetApp.optionsFrom(db0.depots));
+        FleetApp.fillSelect(document.querySelector('[name="truckId"]'), FleetApp.optionsFrom(db0.trucks, "id", function (t) { return t.plate; }));
+        FleetApp.fillSelect(document.querySelector('[name="driverId"]'), FleetApp.optionsFrom(db0.drivers, "id", function (d) { return d.name; }));
+        FleetApp.bindModalDismiss();
+        document.getElementById("btn-new").onclick = function () { FleetApp.openModal("modal-ot"); };
+        document.getElementById("q").oninput = render;
+        document.getElementById("f-status").onchange = render;
+        document.getElementById("form-ot").onsubmit = function (e) {
+            e.preventDefault();
+            const form = {}; new FormData(e.target).forEach(function (v, k) { form[k] = v; });
+            const ot = FleetApp.createOt(form);
+            FleetApp.closeModal("modal-ot");
+            FleetApp.toast(ot.id + " emitida", "ok");
+            render();
+        };
+        function openDetail(id) {
+            const ot = FleetApp.hydrateOt(FleetApp.findOt(id));
+            document.getElementById("det-title").textContent = ot.id;
+            document.getElementById("det-body").innerHTML = "<p>" + ot.clientName + "</p><p>" + ot.origin + " → " + ot.destination + "</p><p>Sello " + ot.seal + "</p>";
+            document.getElementById("det-actions").innerHTML =
+                (ot.status === "programada" ? '<button data-st="transito" class="bg-blue-600 text-white text-xs font-bold px-3 py-2 rounded-lg">Iniciar tránsito</button>' : "") +
+                (ot.status !== "cerrada" && ot.status !== "anulada" ? '<button data-st="anulada" class="border text-xs font-bold px-3 py-2 rounded-lg">Cancelar</button>' : "");
+            document.querySelectorAll("[data-st]").forEach(function (x) {
+                x.onclick = function () {
+                    const r = FleetApp.setOtStatus(ot.id, x.getAttribute("data-st"));
+                    if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+                    FleetApp.closeModal("modal-detail"); render();
+                };
+            });
+            FleetApp.openModal("modal-detail");
+        }
+        function nextStatus(st) {
+            if (st === "programada") return "transito";
+            if (st === "transito") return "entregado";
+            return null;
+        }
+        function bindSwipe(el) {
+            const front = el.querySelector(".fc-swipe-front");
+            const id = el.getAttribute("data-id");
+            const status = el.getAttribute("data-status");
+            let startX = 0;
+            let dx = 0;
+            let tracking = false;
+            function snap(x) { front.style.transform = "translateX(" + x + "px)"; }
+            function onStart(x) {
+                startX = x;
+                dx = 0;
+                tracking = true;
+                front.style.transition = "none";
+            }
+            function onMove(x) {
+                if (!tracking) return;
+                dx = x - startX;
+                snap(Math.max(-96, Math.min(96, dx)));
+            }
+            function onEnd() {
+                if (!tracking) return;
+                tracking = false;
+                front.style.transition = "transform 0.18s ease";
+                if (dx > 72) {
+                    const next = nextStatus(status);
+                    snap(0);
+                    if (!next) { FleetApp.toast("Esta OT ya no avanza por swipe", "info"); return; }
+                    const r = FleetApp.setOtStatus(id, next);
+                    if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+                    FleetApp.toast(next === "transito" ? "Viaje iniciado" : "Entrega enviada a POD", "ok");
+                    render();
+                    return;
+                }
+                if (dx < -72) {
+                    snap(0);
+                    if (status !== "transito" && status !== "entregado") { FleetApp.toast("Sin ruta GPS activa", "info"); return; }
+                    if (session.role === "finanzas") { FleetApp.toast("GPS es de operaciones", "warn"); return; }
+                    window.location.href = "pantalla_gps_movil.html?ot=" + encodeURIComponent(id);
+                    return;
+                }
+                snap(0);
+                if (Math.abs(dx) < 8) openDetail(id);
+            }
+            front.addEventListener("touchstart", function (e) { onStart(e.changedTouches[0].clientX); }, { passive: true });
+            front.addEventListener("touchmove", function (e) { onMove(e.changedTouches[0].clientX); }, { passive: true });
+            front.addEventListener("touchend", onEnd);
+            front.addEventListener("pointerdown", function (e) {
+                if (e.pointerType === "touch") return;
+                onStart(e.clientX);
+                front.setPointerCapture(e.pointerId);
+            });
+            front.addEventListener("pointermove", function (e) {
+                if (e.pointerType === "touch") return;
+                onMove(e.clientX);
+            });
+            front.addEventListener("pointerup", function (e) {
+                if (e.pointerType === "touch") return;
+                onEnd();
+            });
+        }
+        function render() {
+            const db = FleetApp.load();
+            const q = document.getElementById("q").value.toLowerCase();
+            const st = document.getElementById("f-status").value;
+            const all = db.ots.map(function (o) { return FleetApp.hydrateOt(o, db); });
+            document.getElementById("kpis").innerHTML = ["programada", "transito", "entregado", "cerrada"].map(function (k) {
+                return '<div class="bg-white border rounded-xl py-2"><p class="text-lg font-extrabold">' + all.filter(function (o) { return o.status === k; }).length + '</p><p class="text-[9px] text-slate-500">' + FleetApp.statusMeta(k).label + "</p></div>";
+            }).join("");
+            document.getElementById("list").innerHTML = all.filter(function (h) {
+                if (st && h.status !== st) return false;
+                return !q || [h.id, h.clientName, h.plate, h.container].join(" ").toLowerCase().indexOf(q) !== -1;
+            }).map(function (h) {
+                const s = FleetApp.statusMeta(h.status);
+                const canGo = h.status === "programada" || h.status === "transito";
+                const canGps = h.status === "transito" || h.status === "entregado";
+                return '<div class="fc-swipe" data-id="' + h.id + '" data-status="' + h.status + '">' +
+                    '<div class="fc-swipe-actions"><div class="fc-swipe-go">Avanzar</div><div class="fc-swipe-gps">GPS</div></div>' +
+                    '<div class="fc-swipe-front p-3"><div class="flex justify-between"><span class="font-bold text-sm">' + h.id + '</span><span class="text-[10px] px-2 py-0.5 rounded-full border ' + s.cls + '">' + s.label + "</span></div>" +
+                    '<p class="text-xs text-slate-500">' + h.clientName + '</p><p class="text-[11px] font-mono">' + h.container + " · " + h.plate + "</p>" +
+                    '<p class="text-[10px] text-slate-400 mt-1">' + (canGo ? "Desliza → avanzar" : "") + (canGo && canGps ? " · " : "") + (canGps ? "← GPS" : "") + "</p></div></div>";
+            }).join("");
+            document.querySelectorAll(".fc-swipe").forEach(bindSwipe);
+        }
+        render();
+    </script>
+</body>
+</html>

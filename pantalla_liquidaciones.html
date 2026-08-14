@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Liquidaciones</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app text-slate-800 antialiased">
+    <div class="flex h-screen overflow-hidden">
+        <aside id="fc-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between"></aside>
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="fc-header h-16 border-b bg-white flex items-center justify-between px-6 sticky top-0 z-10">
+                <h2 class="text-xl font-bold">Control Financiero: Cobranzas y Pago a Fletes</h2>
+                <button id="btn-pref" class="bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Generar Pre-Facturación
+                </button>
+            </header>
+            <div class="p-6 space-y-6">
+                <div id="kpis" class="grid grid-cols-1 md:grid-cols-4 gap-4"></div>
+                <div class="bg-white rounded-xl border overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50 flex flex-wrap gap-2 justify-between items-center">
+                        <h3 class="font-bold text-sm">Resumen por Orden de Transporte</h3>
+                        <div class="flex gap-2">
+                            <select id="f-pay" class="text-xs border rounded-lg px-3 py-1.5">
+                                <option value="">Todos los cobros</option>
+                                <option value="listo">Listo para facturar</option>
+                                <option value="bloqueado">Bloqueado (falta POD)</option>
+                                <option value="emitida">Factura emitida</option>
+                                <option value="pagada">Pagada</option>
+                            </select>
+                            <span class="text-xs bg-white border px-3 py-1.5 rounded-lg">Agosto 2026</span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b">
+                                <tr>
+                                    <th class="px-5 py-3">N° OT</th>
+                                    <th class="px-5 py-3">Cliente</th>
+                                    <th class="px-5 py-3">Tarifa</th>
+                                    <th class="px-5 py-3">Costo + viático</th>
+                                    <th class="px-5 py-3">Margen</th>
+                                    <th class="px-5 py-3">Estado cobro</th>
+                                    <th class="px-5 py-3">Chofer</th>
+                                    <th class="px-5 py-3 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="body" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <div id="modal-liq" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-md p-6 space-y-3">
+            <h3 class="font-bold" id="liq-title">Liquidación</h3>
+            <div id="liq-body" class="text-sm space-y-1"></div>
+            <div class="flex justify-end gap-2">
+                <button data-close="modal-liq" class="px-3 py-2 text-sm border rounded-lg">Cerrar</button>
+                <button id="liq-go" class="px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg font-semibold">Confirmar</button>
+            </div>
+        </div>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "finanzas", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderSidebar("liq");
+        FleetApp.bindModalDismiss();
+        let pendingAction = null;
+        document.getElementById("f-pay").addEventListener("change", render);
+        document.getElementById("btn-pref").addEventListener("click", function () {
+            const rows = [["OT", "Cliente", "Tarifa", "Costo", "Viatico", "Margen", "Factura", "Estado"]];
+            ready().forEach(function (h) {
+                rows.push([h.id, h.clientName, h.tarifa, h.costo, h.viatico, h.margen, h.invoice || "", payState(h)]);
+            });
+            if (rows.length === 1) { FleetApp.toast("No hay OTs cerradas con POD para pre-facturar", "warn"); return; }
+            FleetApp.downloadCsv("prefacturacion_agosto_2026.csv", rows);
+            FleetApp.toast("Pre-facturación exportada", "ok");
+        });
+        document.getElementById("liq-go").addEventListener("click", function () {
+            if (!pendingAction) return;
+            const r = pendingAction.fn(pendingAction.id);
+            FleetApp.closeModal("modal-liq");
+            if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+            FleetApp.toast(pendingAction.ok, "ok");
+            render();
+        });
+
+        function payState(h) {
+            if (h.invoiceStatus === "pagada") return "pagada";
+            if (h.invoice) return "emitida";
+            if (FleetApp.canInvoice(h)) return "listo";
+            return "bloqueado";
+        }
+        function payLabel(s) {
+            return { listo: "Listo para Facturar", bloqueado: "Falta Validación POD", emitida: "Factura emitida", pagada: "Pagada" }[s];
+        }
+        function payCls(s) {
+            return { listo: "bg-emerald-100 text-emerald-800", bloqueado: "bg-amber-100 text-amber-800", emitida: "bg-blue-100 text-blue-800", pagada: "bg-slate-200 text-slate-700" }[s];
+        }
+        function ready() {
+            return FleetApp.load().ots.filter(function (o) { return o.status !== "anulada" && o.status !== "programada"; }).map(function (o) { return FleetApp.hydrateOt(o); });
+        }
+
+        function render() {
+            const all = ready();
+            const f = document.getElementById("f-pay").value;
+            const cobro = all.filter(function (h) { return FleetApp.canInvoice(h); }).reduce(function (s, h) { return s + h.tarifa; }, 0);
+            const pagar = all.filter(function (h) { return h.status === "cerrada" && !h.driverPaid; }).reduce(function (s, h) { return s + h.costo + h.viatico; }, 0);
+            const margen = all.filter(function (h) { return h.status === "cerrada"; }).reduce(function (s, h) { return s + h.margen; }, 0);
+            const otif = all.length ? Math.round(all.filter(function (h) { return h.status === "cerrada"; }).length / all.length * 100) : 0;
+            document.getElementById("kpis").innerHTML =
+                card("Por facturar a clientes", FleetApp.formatCLP(cobro), all.filter(function (h) { return FleetApp.canInvoice(h); }).length + " OTs con POD OK") +
+                card("Por pagar a choferes", FleetApp.formatCLP(pagar), "Liquidaciones pendientes") +
+                card("Margen operativo", FleetApp.formatCLP(margen), "Viajes cerrados", true) +
+                card("OTIF documental", otif + "%", "OTs cerradas / en ciclo");
+            const rows = all.filter(function (h) { return !f || payState(h) === f; });
+            document.getElementById("body").innerHTML = rows.map(function (h) {
+                const ps = payState(h);
+                const costo = h.costo + h.viatico;
+                const menu = [];
+                let primary = "";
+                if (ps === "listo") {
+                    primary = '<button data-act="inv" data-id="' + h.id + '" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg">Emitir factura</button>';
+                }
+                if (h.status === "cerrada" && !h.driverPaid) {
+                    if (!primary) primary = '<button data-act="liq" data-id="' + h.id + '" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded-lg">Liquidar chofer</button>';
+                    else menu.push({ act: "liq", label: "Liquidar chofer" });
+                }
+                if (ps === "emitida") {
+                    primary = '<button data-act="pay" data-id="' + h.id + '" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 rounded-lg">Marcar pagada</button>';
+                    if (h.status === "cerrada" && !h.driverPaid && !menu.length) menu.push({ act: "liq", label: "Liquidar chofer" });
+                }
+                if (ps === "bloqueado") primary = '<span class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1.5 rounded-lg">Falta POD</span>';
+                if (ps === "pagada" && h.driverPaid) primary = '<span class="text-[11px] text-slate-400 font-semibold">' + h.invoice + " · " + h.liquidation + "</span>";
+                const kebab = menu.length
+                    ? '<div class="fc-kebab"><button type="button" class="fc-kebab-btn" data-kebab="' + h.id + '" aria-label="Más acciones">···</button>' +
+                      '<div class="fc-kebab-menu hidden" id="menu-' + h.id + '">' +
+                      menu.map(function (m) { return '<button type="button" data-act="' + m.act + '" data-id="' + h.id + '">' + m.label + "</button>"; }).join("") +
+                      "</div></div>"
+                    : "";
+                return '<tr><td class="px-5 py-4 font-bold">' + h.id + '</td><td class="px-5 py-4">' + h.clientName + '</td><td class="px-5 py-4 font-semibold">' + FleetApp.formatCLP(h.tarifa) + '</td><td class="px-5 py-4">' + FleetApp.formatCLP(costo) + '</td><td class="px-5 py-4 font-bold text-emerald-600">' + FleetApp.formatCLP(h.margen) + '</td>' +
+                    '<td class="px-5 py-4"><span class="text-xs font-bold px-2.5 py-1 rounded-full ' + payCls(ps) + '">' + payLabel(ps) + '</span></td>' +
+                    '<td class="px-5 py-4 text-xs">' + (h.driverPaid ? "Pagado " + (h.liquidation || "") : "Pendiente") + '</td>' +
+                    '<td class="px-5 py-4"><div class="flex items-center justify-end gap-2">' + primary + kebab + "</div></td></tr>";
+            }).join("");
+            document.querySelectorAll("[data-act]").forEach(function (b) {
+                b.addEventListener("click", function () { openAct(b.getAttribute("data-act"), b.getAttribute("data-id")); });
+            });
+            document.querySelectorAll("[data-kebab]").forEach(function (b) {
+                b.addEventListener("click", function (e) {
+                    e.stopPropagation();
+                    const id = "menu-" + b.getAttribute("data-kebab");
+                    document.querySelectorAll(".fc-kebab-menu").forEach(function (m) {
+                        if (m.id !== id) m.classList.add("hidden");
+                    });
+                    document.getElementById(id).classList.toggle("hidden");
+                });
+            });
+            FleetApp.icons();
+        }
+        function card(t, v, s, hi) {
+            return '<div class="bg-white p-5 rounded-xl border ' + (hi ? "bg-emerald-50/50 border-emerald-200" : "") + '"><p class="text-xs font-semibold uppercase text-slate-500">' + t + '</p><p class="text-2xl font-bold mt-1">' + v + '</p><p class="text-xs mt-1 text-slate-500">' + s + '</p></div>';
+        }
+        function openAct(act, id) {
+            const h = FleetApp.hydrateOt(FleetApp.findOt(id));
+            const map = {
+                inv: { title: "Emitir factura cliente", fn: FleetApp.emitInvoice, ok: "Factura emitida", body: "Se facturará " + FleetApp.formatCLP(h.tarifa) + " a " + h.clientName + " por " + h.id + "." },
+                liq: { title: "Liquidar chofer", fn: FleetApp.emitLiquidation, ok: "Liquidación emitida", body: "Pago a " + h.driverName + ": " + FleetApp.formatCLP(h.costo + h.viatico) + " (flete + viático)." },
+                pay: { title: "Registrar pago cliente", fn: FleetApp.markInvoicePaid, ok: "Cobranza marcada como pagada", body: "Factura " + h.invoice + " de " + h.clientName + "." },
+            };
+            pendingAction = Object.assign({ id: id }, map[act]);
+            document.getElementById("liq-title").textContent = pendingAction.title;
+            document.getElementById("liq-body").textContent = pendingAction.body;
+            FleetApp.openModal("modal-liq");
+        }
+        document.addEventListener("click", function () {
+            document.querySelectorAll(".fc-kebab-menu").forEach(function (m) { m.classList.add("hidden"); });
+        });
+        render();
+    </script>
+</body>
+</html>

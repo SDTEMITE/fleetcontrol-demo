@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl Móvil — POD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-mobile-page">
+    <div class="fc-mobile-app">
+        <header id="fc-m-header"></header>
+        <div class="fc-m-body space-y-3">
+            <select id="f-status" class="w-full border rounded-xl px-3 py-2 text-sm">
+                <option value="revision">En revisión</option>
+                <option value="todos">Todos</option>
+                <option value="ok">Aprobados</option>
+            </select>
+            <div id="list" class="space-y-2"></div>
+            <div id="viewer" class="bg-white border rounded-2xl p-3 space-y-2 hidden"></div>
+        </div>
+        <nav id="fc-m-nav"></nav>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderMobileChrome("pod-m", "Validación POD");
+        let selected = "OT-1047";
+        let docType = "guia";
+        document.getElementById("f-status").onchange = render;
+        function listOts() {
+            const f = document.getElementById("f-status").value;
+            return FleetApp.load().ots.map(function (o) { return FleetApp.hydrateOt(o); }).filter(function (o) {
+                if (o.status === "programada" || o.status === "anulada") return false;
+                if (f === "todos") return true;
+                return o.pod === f || (f === "revision" && (o.pod === "revision" || o.pod === "falta_foto"));
+            });
+        }
+        function render() {
+            const items = listOts();
+            if (!items.some(function (o) { return o.id === selected; }) && items[0]) selected = items[0].id;
+            document.getElementById("list").innerHTML = items.map(function (o) {
+                return '<button data-id="' + o.id + '" class="w-full text-left bg-white border rounded-2xl p-3 ' + (o.id === selected ? "ring-2 ring-emerald-400" : "") + '"><div class="flex justify-between"><span class="font-bold text-sm">' + o.id + '</span><span class="text-[10px] font-bold">' + FleetApp.podMeta(o.pod).label + '</span></div><p class="text-xs text-slate-500">' + o.clientName + ' · ' + o.driverName + '</p></button>';
+            }).join("") || '<p class="text-sm text-slate-400">Sin documentos</p>';
+            document.querySelectorAll("#list [data-id]").forEach(function (b) { b.onclick = function () { selected = b.getAttribute("data-id"); render(); }; });
+            const ot = items.find(function (o) { return o.id === selected; });
+            const box = document.getElementById("viewer");
+            if (!ot) { box.classList.add("hidden"); return; }
+            box.classList.remove("hidden");
+            const doc = ot.docs.find(function (d) { return d.type === docType; }) || ot.docs[0];
+            docType = doc.type;
+            box.innerHTML =
+                '<div class="flex gap-1 flex-wrap">' + ot.docs.map(function (d) { return '<button data-doc="' + d.type + '" class="text-[10px] px-2 py-1 rounded-lg border ' + (d.type === docType ? "bg-slate-900 text-white" : "") + '">' + d.label.split(" ")[0] + "</button>"; }).join("") + "</div>" +
+                '<p class="text-xs font-bold">' + doc.label + ' · ' + FleetApp.docStatusMeta(doc.status).label + '</p>' +
+                '<p class="text-xs text-slate-500">' + ot.container + ' · ' + (doc.receiver || "sin firma") + '</p>' +
+                (doc.status === "cargado" ? '<div class="flex gap-2"><button id="ok" class="flex-1 bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg">Aprobar</button><button id="no" class="flex-1 border border-red-200 text-red-600 text-xs font-bold py-2 rounded-lg">Rechazar</button></div>' : "");
+            document.querySelectorAll("[data-doc]").forEach(function (b) { b.onclick = function () { docType = b.getAttribute("data-doc"); render(); }; });
+            const ok = document.getElementById("ok");
+            if (ok) ok.onclick = function () { const r = FleetApp.reviewDoc(ot.id, doc.type, true); FleetApp.toast(r.ok ? "Aprobado" : r.error, r.ok ? "ok" : "err"); render(); };
+            const no = document.getElementById("no");
+            if (no) no.onclick = function () { const r = FleetApp.reviewDoc(ot.id, doc.type, false, "Foto ilegible"); FleetApp.toast(r.ok ? "Rechazado" : r.error, r.ok ? "warn" : "err"); render(); };
+        }
+        render();
+    </script>
+</body>
+</html>

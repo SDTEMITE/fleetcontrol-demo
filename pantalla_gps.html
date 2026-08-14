@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Monitoreo GPS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app text-slate-800 antialiased overflow-hidden">
+    <div class="flex h-screen">
+        <aside id="fc-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between"></aside>
+        <main class="flex-1 flex flex-col relative">
+            <header class="fc-header h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-10">
+                <div class="flex items-center gap-4">
+                    <h2 class="text-lg font-bold text-slate-900">Monitoreo de Flota en Tiempo Real</h2>
+                    <span class="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-semibold border border-emerald-200">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Bermann GPS Sincronizado
+                    </span>
+                </div>
+                <button id="btn-refresh" class="flex items-center gap-2 border border-slate-300 text-slate-700 font-medium px-3.5 py-1.5 rounded-lg text-sm bg-white hover:bg-slate-50">
+                    <i data-lucide="refresh-cw" class="w-4 h-4"></i> Actualizar Coordenadas
+                </button>
+            </header>
+            <div class="flex-1 flex overflow-hidden relative">
+                <div class="w-80 bg-white border-r border-slate-200 flex flex-col z-10">
+                    <div class="p-4 border-b border-slate-200">
+                        <input id="q" type="text" placeholder="Filtrar por camión, OT o cliente..." class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50">
+                    </div>
+                    <div id="list" class="flex-1 overflow-y-auto divide-y divide-slate-100"></div>
+                </div>
+                <div id="map" class="flex-1 map-bg relative overflow-hidden">
+                    <svg class="absolute inset-0 w-full h-full pointer-events-none opacity-40">
+                        <path d="M 80 420 Q 220 260 400 300 T 620 180" fill="none" stroke="#10b981" stroke-width="4" stroke-dasharray="8 8" />
+                    </svg>
+                    <div id="markers"></div>
+                    <div id="popup" class="hidden absolute w-80 bg-slate-900/95 border border-slate-700 text-white p-4 rounded-xl z-30"></div>
+                    <div class="absolute right-6 bottom-6 flex flex-col gap-2 z-10">
+                        <button id="zoom-in" class="w-10 h-10 bg-slate-900 border border-slate-700 text-white rounded-lg">+</button>
+                        <button id="zoom-out" class="w-10 h-10 bg-slate-900 border border-slate-700 text-white rounded-lg">−</button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderSidebar("gps");
+        let selected = new URLSearchParams(location.search).get("ot") || "OT-1048";
+        let zoom = 1;
+
+        document.getElementById("q").addEventListener("input", render);
+        document.getElementById("btn-refresh").addEventListener("click", function () {
+            FleetApp.refreshGps();
+            FleetApp.toast("Coordenadas Bermann actualizadas", "ok");
+            render();
+        });
+        document.getElementById("zoom-in").addEventListener("click", function () { zoom = Math.min(1.4, zoom + 0.1); document.getElementById("map").style.transform = "scale(" + zoom + ")"; });
+        document.getElementById("zoom-out").addEventListener("click", function () { zoom = Math.max(0.8, zoom - 0.1); document.getElementById("map").style.transform = "scale(" + zoom + ")"; });
+
+        function digits(phone) { return String(phone || "").replace(/\D/g, ""); }
+        function telHref(phone) { return "tel:+" + digits(phone); }
+        function waHref(phone, ot) {
+            const msg = encodeURIComponent("Hola " + ot.driverName + ", te contacto por la " + ot.id + " (" + ot.container + ").");
+            return "https://wa.me/" + digits(phone) + "?text=" + msg;
+        }
+
+        function units() {
+            const db = FleetApp.load();
+            const q = document.getElementById("q").value.toLowerCase();
+            return db.ots.filter(function (o) { return o.status === "transito" || o.status === "entregado"; }).map(function (o) {
+                return { ot: FleetApp.hydrateOt(o, db), gps: db.gps[o.truckId] || { x: 50, y: 50, speed: 0, location: "Sin señal" } };
+            }).filter(function (u) {
+                if (!q) return true;
+                return [u.ot.id, u.ot.plate, u.ot.clientName, u.ot.driverName].join(" ").toLowerCase().indexOf(q) !== -1;
+            });
+        }
+
+        function render() {
+            const items = units();
+            if (!items.some(function (u) { return u.ot.id === selected; }) && items[0]) selected = items[0].ot.id;
+            document.getElementById("list").innerHTML = items.map(function (u) {
+                const on = u.ot.id === selected;
+                return '<div data-id="' + u.ot.id + '" class="p-4 cursor-pointer ' + (on ? "bg-emerald-50/50 border-l-4 border-emerald-500" : "hover:bg-slate-50") + '">' +
+                    '<div class="flex justify-between"><div><span class="font-bold text-slate-900">' + u.ot.plate + '</span><p class="text-xs font-semibold text-slate-500">' + u.ot.id + ' | ' + u.ot.clientName + '</p></div>' +
+                    '<span class="text-xs px-2 py-0.5 rounded font-bold ' + (u.gps.speed > 0 ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600") + '">' + u.gps.speed + ' km/h</span></div>' +
+                    '<div class="mt-2 text-xs text-slate-600">' + u.ot.driverName + ' · ' + u.gps.location + '</div></div>';
+            }).join("") || '<p class="p-4 text-sm text-slate-400">Sin unidades en ruta</p>';
+            document.querySelectorAll("#list [data-id]").forEach(function (el) {
+                el.addEventListener("click", function () { selected = el.getAttribute("data-id"); render(); });
+            });
+            document.getElementById("markers").innerHTML = items.map(function (u) {
+                const on = u.ot.id === selected;
+                const moving = u.ot.status === "transito";
+                return '<button data-id="' + u.ot.id + '" class="absolute -translate-x-1/2 -translate-y-1/2 z-20" style="left:' + u.gps.x + '%;top:' + u.gps.y + '%">' +
+                    '<div class="fc-radar">' +
+                    (moving ? '<span class="fc-radar-ping"></span><span class="fc-radar-ping-2"></span>' : "") +
+                    '<div class="relative w-10 h-10 rounded-full ' + (on ? "bg-emerald-500 ring-4 ring-emerald-400/30" : "bg-slate-600") + ' text-white flex items-center justify-center border-2 border-white"><i data-lucide="truck" class="w-5 h-5"></i></div></div></button>';
+            }).join("");
+            document.querySelectorAll("#markers [data-id]").forEach(function (el) {
+                el.addEventListener("click", function () { selected = el.getAttribute("data-id"); render(); });
+            });
+            const cur = items.find(function (u) { return u.ot.id === selected; });
+            const popup = document.getElementById("popup");
+            if (cur) {
+                popup.classList.remove("hidden");
+                popup.style.left = "calc(" + cur.gps.x + "% - 160px)";
+                popup.style.top = "calc(" + Math.max(8, cur.gps.y - 28) + "%)";
+                popup.innerHTML =
+                    '<div class="flex justify-between items-center border-b border-slate-800 pb-2 mb-3"><span class="text-xs font-bold uppercase text-emerald-400">Unidad en ruta</span><span class="text-xs bg-slate-800 px-2 py-0.5 rounded">ID Bermann #' + cur.ot.gpsId + '</span></div>' +
+                    '<div class="space-y-1.5 text-xs"><div class="flex justify-between"><span class="text-slate-400">Patente / Chofer</span><span class="font-bold">' + cur.ot.plate + ' (' + cur.ot.driverName + ')</span></div>' +
+                    '<div class="flex justify-between"><span class="text-slate-400">OT</span><span class="font-bold">' + cur.ot.id + '</span></div>' +
+                    '<div class="flex justify-between"><span class="text-slate-400">Contenedor</span><span class="font-mono text-amber-400">' + cur.ot.container + '</span></div>' +
+                    '<div class="flex justify-between"><span class="text-slate-400">Velocidad</span><span class="text-emerald-400 font-bold">' + cur.gps.speed + ' km/h</span></div>' +
+                    '<div class="flex justify-between"><span class="text-slate-400">Ubicación</span><span class="text-right max-w-[160px]">' + cur.gps.location + '</span></div></div>' +
+                    '<div class="mt-3 grid grid-cols-2 gap-2">' +
+                    '<a href="' + telHref(cur.ot.driverPhone) + '" class="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white text-xs py-2 rounded-lg font-semibold"><i data-lucide="phone" class="w-3.5 h-3.5"></i> Llamar</a>' +
+                    '<a href="' + waHref(cur.ot.driverPhone, cur.ot) + '" target="_blank" rel="noopener" class="flex items-center justify-center gap-1.5 bg-[#25D366] hover:bg-[#1ebe5d] text-white text-xs py-2 rounded-lg font-semibold"><i data-lucide="message-circle" class="w-3.5 h-3.5"></i> WhatsApp</a>' +
+                    '</div>' +
+                    '<button id="btn-share" class="mt-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2 rounded-lg font-semibold">Link Tracking Cliente</button>';
+                document.getElementById("btn-share").addEventListener("click", function () {
+                    const url = location.href.replace(/pantalla_gps.html.*/, FleetApp.trackingUrl(cur.ot));
+                    FleetApp.copyText(url);
+                    window.open(FleetApp.trackingUrl(cur.ot), "_blank");
+                });
+            } else popup.classList.add("hidden");
+            FleetApp.icons();
+        }
+        render();
+    </script>
+</body>
+</html>

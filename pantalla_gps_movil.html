@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl Móvil — GPS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-mobile-page">
+    <div class="fc-mobile-app">
+        <header id="fc-m-header"></header>
+        <div class="fc-m-body space-y-3">
+            <button id="btn-refresh" class="w-full border bg-white text-sm font-semibold py-2 rounded-xl">Actualizar Bermann</button>
+            <div id="map" class="map-bg h-44 rounded-2xl relative overflow-hidden">
+                <div id="markers"></div>
+            </div>
+            <div id="list" class="space-y-2"></div>
+        </div>
+        <nav id="fc-m-nav"></nav>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderMobileChrome("gps-m", "Monitoreo GPS");
+        let selected = new URLSearchParams(location.search).get("ot") || "OT-1048";
+        document.getElementById("btn-refresh").onclick = function () { FleetApp.refreshGps(); FleetApp.toast("Coordenadas actualizadas", "ok"); render(); };
+        function units() {
+            const db = FleetApp.load();
+            return db.ots.filter(function (o) { return o.status === "transito" || o.status === "entregado"; }).map(function (o) {
+                return { ot: FleetApp.hydrateOt(o, db), gps: db.gps[o.truckId] || { x: 50, y: 50, speed: 0, location: "Sin señal" } };
+            });
+        }
+        function render() {
+            const items = units();
+            if (!items.some(function (u) { return u.ot.id === selected; }) && items[0]) selected = items[0].ot.id;
+            document.getElementById("markers").innerHTML = items.map(function (u) {
+                return '<div class="absolute -translate-x-1/2 -translate-y-1/2 w-8 h-8 rounded-full ' + (u.ot.id === selected ? "bg-emerald-500" : "bg-slate-600") + ' text-white flex items-center justify-center border-2 border-white" style="left:' + u.gps.x + '%;top:' + u.gps.y + '%"><i data-lucide="truck" class="w-4 h-4"></i></div>';
+            }).join("");
+            document.getElementById("list").innerHTML = items.map(function (u) {
+                return '<button data-id="' + u.ot.id + '" class="w-full text-left bg-white border rounded-2xl p-3 ' + (u.ot.id === selected ? "ring-2 ring-emerald-400" : "") + '"><div class="flex justify-between"><span class="font-bold">' + u.ot.plate + '</span><span class="text-xs font-bold">' + u.gps.speed + ' km/h</span></div><p class="text-xs text-slate-500">' + u.ot.id + ' · ' + u.ot.clientName + '</p><p class="text-[11px]">' + u.gps.location + '</p><a class="text-[11px] font-bold text-emerald-700" href="' + FleetApp.trackingUrl(u.ot) + '" target="_blank">Tracking cliente</a></button>';
+            }).join("") || '<p class="text-sm text-slate-400">Sin unidades en ruta</p>';
+            document.querySelectorAll("#list [data-id]").forEach(function (b) { b.onclick = function () { selected = b.getAttribute("data-id"); render(); }; });
+            FleetApp.icons();
+        }
+        render();
+    </script>
+</body>
+</html>

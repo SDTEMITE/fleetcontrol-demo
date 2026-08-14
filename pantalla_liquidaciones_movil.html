@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl Móvil — Cobros</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-mobile-page">
+    <div class="fc-mobile-app">
+        <header id="fc-m-header"></header>
+        <div class="fc-m-body space-y-3">
+            <div id="kpis" class="grid grid-cols-2 gap-2"></div>
+            <select id="f-pay" class="w-full border rounded-xl px-3 py-2 text-sm">
+                <option value="">Todos</option>
+                <option value="listo">Listo para facturar</option>
+                <option value="bloqueado">Bloqueado</option>
+                <option value="emitida">Emitida</option>
+                <option value="pagada">Pagada</option>
+            </select>
+            <div id="list" class="space-y-2"></div>
+        </div>
+        <nav id="fc-m-nav"></nav>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "finanzas", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderMobileChrome("liq-m", "Cobros y liquidaciones");
+        document.getElementById("f-pay").onchange = render;
+        function payState(h) {
+            if (h.invoiceStatus === "pagada") return "pagada";
+            if (h.invoice) return "emitida";
+            if (FleetApp.canInvoice(h)) return "listo";
+            return "bloqueado";
+        }
+        function render() {
+            const all = FleetApp.load().ots.filter(function (o) { return o.status !== "anulada" && o.status !== "programada"; }).map(function (o) { return FleetApp.hydrateOt(o); });
+            const cobro = all.filter(function (h) { return FleetApp.canInvoice(h); }).reduce(function (s, h) { return s + h.tarifa; }, 0);
+            const pagar = all.filter(function (h) { return h.status === "cerrada" && !h.driverPaid; }).reduce(function (s, h) { return s + h.costo + h.viatico; }, 0);
+            document.getElementById("kpis").innerHTML =
+                '<div class="bg-white border rounded-xl p-3"><p class="text-[10px] text-slate-500">Por facturar</p><p class="font-extrabold text-sm">' + FleetApp.formatCLP(cobro) + '</p></div>' +
+                '<div class="bg-white border rounded-xl p-3"><p class="text-[10px] text-slate-500">Por pagar choferes</p><p class="font-extrabold text-sm">' + FleetApp.formatCLP(pagar) + '</p></div>';
+            const f = document.getElementById("f-pay").value;
+            document.getElementById("list").innerHTML = all.filter(function (h) { return !f || payState(h) === f; }).map(function (h) {
+                const ps = payState(h);
+                return '<div class="bg-white border rounded-2xl p-3 space-y-2"><div class="flex justify-between"><span class="font-bold text-sm">' + h.id + '</span><span class="text-[10px] font-bold">' + ps + '</span></div><p class="text-xs">' + h.clientName + '</p><p class="text-xs text-emerald-700 font-bold">' + FleetApp.formatCLP(h.margen) + '</p>' +
+                    (ps === "listo" ? '<button data-act="inv" data-id="' + h.id + '" class="w-full bg-emerald-600 text-white text-xs font-bold py-2 rounded-lg">Emitir factura</button>' : "") +
+                    (h.status === "cerrada" && !h.driverPaid ? '<button data-act="liq" data-id="' + h.id + '" class="w-full border text-xs font-bold py-2 rounded-lg">Liquidar chofer</button>' : "") +
+                    (ps === "emitida" ? '<button data-act="pay" data-id="' + h.id + '" class="w-full bg-blue-600 text-white text-xs font-bold py-2 rounded-lg">Marcar pagada</button>' : "") +
+                    (ps === "bloqueado" ? '<p class="text-[11px] text-amber-700">Bloqueado: falta POD</p>' : "") + "</div>";
+            }).join("");
+            document.querySelectorAll("[data-act]").forEach(function (b) {
+                b.onclick = function () {
+                    const map = { inv: FleetApp.emitInvoice, liq: FleetApp.emitLiquidation, pay: FleetApp.markInvoicePaid };
+                    const r = map[b.getAttribute("data-act")](b.getAttribute("data-id"));
+                    FleetApp.toast(r.ok ? "Listo" : r.error, r.ok ? "ok" : "err");
+                    render();
+                };
+            });
+        }
+        render();
+    </script>
+</body>
+</html>

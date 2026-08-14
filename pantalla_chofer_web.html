@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Panel Chofer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app text-slate-800 antialiased">
+    <div class="flex h-screen overflow-hidden">
+        <aside id="fc-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between"></aside>
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <header class="fc-header h-16 border-b bg-white flex items-center justify-between px-6">
+                <div>
+                    <h2 class="text-xl font-bold">Panel web del chofer</h2>
+                    <p id="who" class="text-xs text-slate-500"></p>
+                </div>
+                <button type="button" id="to-mobile" class="text-xs font-semibold text-emerald-700 border border-emerald-200 px-3 py-1.5 rounded-lg">Abrir app móvil</button>
+            </header>
+            <div class="p-6 flex-1 overflow-hidden flex gap-6">
+                <div class="w-80 bg-white rounded-2xl border flex flex-col overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50">
+                        <h3 class="font-bold text-sm">Mis viajes</h3>
+                        <p class="text-xs text-slate-500">Asignados a tu camión</p>
+                    </div>
+                    <div id="list" class="flex-1 overflow-y-auto divide-y"></div>
+                </div>
+                <div class="flex-1 overflow-y-auto space-y-4" id="detail"></div>
+            </div>
+        </main>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["chofer", "admin"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderSidebar("drv-w");
+        const toMobile = document.getElementById("to-mobile");
+        if (toMobile) toMobile.addEventListener("click", function () { FleetApp.switchMode("mobile"); });
+        const db0 = FleetApp.load();
+        const driverId = session.driverId || "d1";
+        const driver = db0.drivers.find(function (d) { return d.id === driverId; }) || db0.drivers[0];
+        const truck = db0.trucks.find(function (t) { return t.id === driver.truckId; }) || {};
+        document.getElementById("who").textContent = driver.name + " · " + (truck.plate || "sin patente") + " · Licencia " + driver.license;
+        let currentId = null;
+
+        function mine() {
+            return FleetApp.load().ots.filter(function (o) { return o.driverId === driver.id && o.status !== "anulada"; }).map(function (o) { return FleetApp.hydrateOt(o); });
+        }
+
+        function render() {
+            const ots = mine();
+            const active = ots.filter(function (o) { return o.status !== "cerrada"; });
+            if (!currentId || !ots.some(function (o) { return o.id === currentId; })) currentId = (active[0] || ots[0] || {}).id;
+            document.getElementById("list").innerHTML = ots.map(function (o) {
+                const st = FleetApp.statusMeta(o.status);
+                const on = o.id === currentId;
+                return '<button data-id="' + o.id + '" class="w-full text-left p-4 ' + (on ? "bg-emerald-50/70 border-l-4 border-emerald-500" : "hover:bg-slate-50") + '">' +
+                    '<div class="flex justify-between"><span class="font-bold text-sm">' + o.id + '</span><span class="text-[10px] font-semibold px-2 py-0.5 rounded-full border ' + st.cls + '">' + st.label + '</span></div>' +
+                    '<p class="text-xs text-slate-500 mt-1">' + o.clientName + '</p><p class="text-[11px] font-mono text-slate-400">' + o.container + '</p></button>';
+            }).join("") || '<p class="p-4 text-sm text-slate-400">Sin viajes</p>';
+            document.querySelectorAll("#list [data-id]").forEach(function (b) {
+                b.addEventListener("click", function () { currentId = b.getAttribute("data-id"); render(); });
+            });
+            const ot = ots.find(function (o) { return o.id === currentId; });
+            const box = document.getElementById("detail");
+            if (!ot) { box.innerHTML = '<p class="text-slate-400">Selecciona un viaje</p>'; return; }
+            const loaded = ot.docs.filter(function (d) { return d.status !== "pendiente" && d.status !== "rechazado"; }).length;
+            box.innerHTML =
+                '<div class="bg-white rounded-2xl border p-5 space-y-3"><div class="flex justify-between items-start"><div><p class="text-xs font-bold uppercase text-emerald-700">' + ot.id + '</p><h3 class="text-lg font-extrabold">' + ot.clientName + '</h3><p class="text-sm text-slate-500">' + ot.origin + ' → ' + ot.destination + '</p></div><span class="text-xs font-semibold px-2.5 py-1 rounded-full border ' + FleetApp.statusMeta(ot.status).cls + '">' + FleetApp.statusMeta(ot.status).label + '</span></div>' +
+                '<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs"><div><p class="text-slate-400">Contenedor</p><p class="font-mono font-bold">' + ot.container + '</p></div><div><p class="text-slate-400">Tipo / sello</p><p class="font-semibold">' + ot.containerType + ' · ' + ot.seal + '</p></div><div><p class="text-slate-400">Fecha</p><p class="font-semibold">' + ot.date + '</p></div><div><p class="text-slate-400">POD</p><p>' + FleetApp.podMeta(ot.pod).label + '</p></div></div></div>' +
+                '<div class="bg-white rounded-2xl border p-5 space-y-3"><div class="flex justify-between"><h4 class="font-bold text-sm">Documentos de viaje</h4><span class="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold">' + loaded + " / " + ot.docs.length + '</span></div>' +
+                '<div class="grid md:grid-cols-2 gap-3">' + ot.docs.map(docBlock).join("") + "</div></div>" +
+                '<div class="flex flex-wrap gap-2">' +
+                (ot.status === "programada" ? '<button id="go-tr" class="bg-blue-600 text-white text-sm font-bold px-4 py-2.5 rounded-xl">Iniciar viaje</button>' : "") +
+                (ot.status === "transito" || ot.status === "entregado" ? '<button id="go-ent" class="bg-slate-900 text-white text-sm font-bold px-4 py-2.5 rounded-xl">Confirmar entrega completa</button>' : "") +
+                '<a class="border text-sm font-semibold px-4 py-2.5 rounded-xl" href="' + FleetApp.trackingUrl(ot) + '" target="_blank">Ver tracking</a></div>';
+            bindDocs(ot);
+            const g1 = document.getElementById("go-tr");
+            if (g1) g1.addEventListener("click", function () { act(ot.id, "transito"); });
+            const g2 = document.getElementById("go-ent");
+            if (g2) g2.addEventListener("click", function () { act(ot.id, "entregado"); });
+            FleetApp.icons();
+        }
+
+        function docBlock(d) {
+            const meta = FleetApp.docStatusMeta(d.status);
+            if (d.status === "cargado" || d.status === "aprobado") {
+                return '<div class="border rounded-xl p-3 flex justify-between items-center"><div><p class="font-bold text-xs">' + d.label + '</p><p class="text-[10px] text-slate-400">' + (d.fileName || "archivo") + '</p></div><span class="text-[10px] font-bold px-2 py-1 rounded ' + meta.cls + '">' + meta.label + '</span></div>';
+            }
+            return '<div class="border-2 border-dashed border-emerald-300 bg-emerald-50/40 rounded-xl p-3 space-y-2"><p class="font-bold text-xs">' + d.label + (d.required ? " *" : "") + '</p>' +
+                (d.status === "rechazado" ? '<p class="text-[10px] text-red-600">' + d.rejectReason + "</p>" : "") +
+                '<label class="block text-center bg-emerald-600 text-white font-semibold text-xs py-2 rounded-lg cursor-pointer">Subir archivo<input type="file" accept="image/*,.pdf" data-doc="' + d.type + '" class="hidden"></label></div>';
+        }
+
+        function bindDocs(ot) {
+            document.querySelectorAll("input[data-doc]").forEach(function (inp) {
+                inp.addEventListener("change", function () {
+                    const file = inp.files[0];
+                    FleetApp.readFilePreview(file, function (preview) {
+                        const r = FleetApp.uploadDoc(ot.id, inp.getAttribute("data-doc"), { fileName: file ? file.name : "foto.jpg", preview: preview, receiver: "Recepción en destino" });
+                        if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+                        FleetApp.toast("Documento cargado", "ok");
+                        render();
+                    });
+                });
+            });
+        }
+
+        function act(id, status) {
+            const r = FleetApp.setOtStatus(id, status);
+            if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+            FleetApp.toast(status === "entregado" ? "Entrega enviada a validación POD" : "Viaje iniciado", "ok");
+            render();
+        }
+        render();
+    </script>
+</body>
+</html>

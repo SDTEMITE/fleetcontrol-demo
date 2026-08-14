@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Órdenes de Transporte</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app text-slate-800 antialiased">
+    <div class="flex h-screen overflow-hidden">
+        <aside id="fc-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between"></aside>
+        <main class="flex-1 flex flex-col overflow-y-auto">
+            <header class="fc-header h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6 sticky top-0 z-10">
+                <div class="flex items-center gap-3">
+                    <h2 class="text-xl font-bold text-slate-900">Gestión de Órdenes de Transporte</h2>
+                    <span id="kpi-active" class="bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium">0 activas</span>
+                </div>
+                <button id="btn-new" class="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium px-4 py-2 rounded-lg text-sm">
+                    <i data-lucide="plus" class="w-4 h-4"></i> Nueva Orden (OT)
+                </button>
+            </header>
+            <div class="p-6 space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4" id="kpis"></div>
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="p-4 border-b border-slate-200 flex flex-wrap gap-3 justify-between items-center bg-slate-50/50">
+                        <div class="relative flex-1 min-w-[220px] max-w-md">
+                            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+                            <input id="q" type="text" placeholder="Buscar OT, contenedor, cliente, patente o sello..." class="w-full pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        </div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <select id="f-status" class="border border-slate-300 text-sm rounded-lg px-3 py-2 bg-white">
+                                <option value="">Todos los Estados</option>
+                                <option value="programada">Programada</option>
+                                <option value="transito">En Tránsito</option>
+                                <option value="entregado">Entregada</option>
+                                <option value="cerrada">Cerrada</option>
+                                <option value="anulada">Cancelada</option>
+                            </select>
+                            <select id="f-client" class="border border-slate-300 text-sm rounded-lg px-3 py-2 bg-white"></select>
+                            <button id="btn-export" class="flex items-center gap-2 border border-slate-300 text-slate-700 px-3 py-2 rounded-lg text-sm bg-white hover:bg-slate-50">
+                                <i data-lucide="download" class="w-4 h-4"></i> Exportar Excel
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm text-slate-600">
+                            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider border-b border-slate-200">
+                                <tr>
+                                    <th class="px-5 py-3.5">N° OT</th>
+                                    <th class="px-5 py-3.5">Cliente</th>
+                                    <th class="px-5 py-3.5">Ruta</th>
+                                    <th class="px-5 py-3.5">Contenedor / Sello</th>
+                                    <th class="px-5 py-3.5">Camión / Chofer</th>
+                                    <th class="px-5 py-3.5">Estado</th>
+                                    <th class="px-5 py-3.5">POD</th>
+                                    <th class="px-5 py-3.5 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ot-body" class="divide-y divide-slate-200"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal-ot" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-xl">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 bg-white">
+                <h3 class="font-bold text-slate-900">Nueva Orden de Transporte</h3>
+                <button data-close="modal-ot" class="text-slate-400 hover:text-slate-700"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <form id="form-ot" class="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Cliente</label>
+                    <select name="clientId" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Fecha de retiro</label>
+                    <input name="date" type="date" value="2026-08-13" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Origen</label>
+                    <select name="origin" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Destino</label>
+                    <select name="destination" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">N° Contenedor</label>
+                    <input name="container" required placeholder="SUDU7829102" class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono uppercase">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Tipo</label>
+                    <select name="containerType" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Sello / Precinto</label>
+                    <input name="seal" required placeholder="SL-441290" class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Depósito de devolución</label>
+                    <select name="returnDepot" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Límite devolución (demurrage)</label>
+                    <input name="returnDeadline" type="date" value="2026-08-20" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Camión</label>
+                    <select name="truckId" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Chofer</label>
+                    <select name="driverId" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Tarifa cliente (CLP)</label>
+                    <input name="tarifa" type="number" min="0" value="1200000" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Pago chofer (CLP)</label>
+                    <input name="costo" type="number" min="0" value="750000" required class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold text-slate-600">Viático (CLP)</label>
+                    <input name="viatico" type="number" min="0" value="45000" class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="text-xs font-semibold text-slate-600">Observaciones</label>
+                    <textarea name="notes" rows="2" class="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm"></textarea>
+                </div>
+                <div class="md:col-span-2 flex justify-end gap-2 pt-2">
+                    <button type="button" data-close="modal-ot" class="px-4 py-2 text-sm border border-slate-300 rounded-lg">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg font-semibold">Emitir OT</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="modal-detail" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-xl max-h-[92vh] overflow-y-auto shadow-xl">
+            <div class="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+                <h3 id="det-title" class="font-bold text-slate-900">Detalle OT</h3>
+                <button data-close="modal-detail" class="text-slate-400"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div id="det-body" class="p-6 space-y-3 text-sm"></div>
+            <div id="det-actions" class="px-6 pb-6 flex flex-wrap gap-2"></div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones", "finanzas"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderSidebar("ops");
+        const db0 = FleetApp.load();
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="clientId"]'), FleetApp.optionsFrom(db0.clients, "id", function (c) { return c.name; }), "Seleccionar cliente");
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="origin"]'), FleetApp.optionsFrom(db0.origins));
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="destination"]'), FleetApp.optionsFrom(db0.destinations));
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="containerType"]'), FleetApp.optionsFrom(db0.containerTypes));
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="returnDepot"]'), FleetApp.optionsFrom(db0.depots));
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="truckId"]'), FleetApp.optionsFrom(db0.trucks, "id", function (t) { return t.plate + " · " + t.brand + " " + t.model; }));
+        FleetApp.fillSelect(document.querySelector('#form-ot [name="driverId"]'), FleetApp.optionsFrom(db0.drivers, "id", function (d) { return d.name + " (" + d.license + ")"; }));
+        FleetApp.fillSelect(document.getElementById("f-client"), FleetApp.optionsFrom(db0.clients, "id", function (c) { return c.name; }), "Todos los clientes");
+        FleetApp.bindModalDismiss();
+
+        document.getElementById("btn-new").addEventListener("click", function () { FleetApp.openModal("modal-ot"); });
+        document.getElementById("q").addEventListener("input", render);
+        document.getElementById("f-status").addEventListener("change", render);
+        document.getElementById("f-client").addEventListener("change", render);
+
+        document.getElementById("form-ot").addEventListener("submit", function (e) {
+            e.preventDefault();
+            const fd = new FormData(e.target);
+            const form = {};
+            fd.forEach(function (v, k) { form[k] = v; });
+            const ot = FleetApp.createOt(form);
+            FleetApp.closeModal("modal-ot");
+            e.target.reset();
+            FleetApp.toast("OT " + ot.id + " emitida en estado Programada", "ok");
+            render();
+        });
+
+        document.getElementById("btn-export").addEventListener("click", function () {
+            const rows = [["OT", "Cliente", "Origen", "Destino", "Contenedor", "Tipo", "Sello", "Depósito", "Estado", "Tarifa", "Costo"]];
+            filtered().forEach(function (ot) {
+                const h = FleetApp.hydrateOt(ot);
+                rows.push([h.id, h.clientName, h.origin, h.destination, h.container, h.containerType, h.seal, h.returnDepot, FleetApp.statusMeta(h.status).label, h.tarifa, h.costo]);
+            });
+            FleetApp.downloadCsv("ots_fleetcontrol.csv", rows);
+            FleetApp.toast("Excel exportado", "ok");
+        });
+
+        function filtered() {
+            const db = FleetApp.load();
+            const q = document.getElementById("q").value.toLowerCase();
+            const st = document.getElementById("f-status").value;
+            const cl = document.getElementById("f-client").value;
+            return db.ots.filter(function (ot) {
+                const h = FleetApp.hydrateOt(ot, db);
+                if (st && ot.status !== st) return false;
+                if (cl && ot.clientId !== cl) return false;
+                if (!q) return true;
+                return [h.id, h.clientName, h.container, h.plate, h.seal, h.driverName].join(" ").toLowerCase().indexOf(q) !== -1;
+            });
+        }
+
+        function render() {
+            const db = FleetApp.load();
+            const all = db.ots.map(function (o) { return FleetApp.hydrateOt(o, db); });
+            const counts = {
+                programada: all.filter(function (o) { return o.status === "programada"; }).length,
+                transito: all.filter(function (o) { return o.status === "transito"; }).length,
+                entregado: all.filter(function (o) { return o.status === "entregado"; }).length,
+                cerrada: all.filter(function (o) { return o.status === "cerrada"; }).length,
+            };
+            document.getElementById("kpi-active").textContent = (counts.programada + counts.transito + counts.entregado) + " viajes activos";
+            document.getElementById("kpis").innerHTML = [
+                kpi("Programadas", counts.programada, "clock", "bg-amber-50 text-amber-600"),
+                kpi("En Tránsito (GPS)", counts.transito, "navigation", "bg-blue-50 text-blue-600"),
+                kpi("Pendiente POD", counts.entregado, "file-warning", "bg-orange-50 text-orange-600"),
+                kpi("Listas para Facturar", counts.cerrada, "check-circle-2", "bg-emerald-50 text-emerald-600"),
+            ].join("");
+            document.getElementById("ot-body").innerHTML = filtered().map(function (ot) {
+                const h = FleetApp.hydrateOt(ot, db);
+                const st = FleetApp.statusMeta(h.status);
+                const pulse = st.pulse ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></span>' : "";
+                const risk = h.demurrageRisk && h.status !== "cerrada" && h.status !== "anulada"
+                    ? '<div class="text-[10px] text-red-600 font-semibold mt-1">Demurrage en ' + h.demurrageDays + ' días</div>' : "";
+                return '<tr class="hover:bg-slate-50/80">' +
+                    '<td class="px-5 py-4 font-bold text-slate-900">' + h.id + '</td>' +
+                    '<td class="px-5 py-4 font-medium text-slate-800">' + h.clientName + '</td>' +
+                    '<td class="px-5 py-4">' + h.origin.split(" - ")[0] + ' ➔ ' + h.destination.split(" (")[0] + risk + '</td>' +
+                    '<td class="px-5 py-4 font-mono text-xs">' + h.container + ' <span class="bg-slate-100 px-1.5 py-0.5 rounded ml-1">' + h.containerType + '</span><div class="text-slate-400 mt-0.5">Sello ' + (h.seal || "—") + '</div></td>' +
+                    '<td class="px-5 py-4"><div class="font-bold text-slate-800">' + h.plate + '</div><div class="text-xs text-slate-500">' + h.driverName + '</div></td>' +
+                    '<td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ' + st.cls + '">' + pulse + st.label + '</span></td>' +
+                    '<td class="px-5 py-4">' + FleetApp.podMeta(h.pod).html + '</td>' +
+                    '<td class="px-5 py-4 text-right"><button data-ot="' + h.id + '" class="btn-det text-emerald-700 text-xs font-bold hover:underline">Ver / avanzar</button></td></tr>';
+            }).join("") || '<tr><td colspan="8" class="px-5 py-8 text-center text-slate-400">Sin resultados</td></tr>';
+            document.querySelectorAll(".btn-det").forEach(function (b) {
+                b.addEventListener("click", function () { openDetail(b.getAttribute("data-ot")); });
+            });
+            FleetApp.icons();
+        }
+
+        function kpi(label, value, icon, color) {
+            return '<div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between"><div><p class="text-xs font-semibold text-slate-500 uppercase">' + label + '</p><p class="text-2xl font-bold text-slate-900 mt-1">' + value + '</p></div><div class="p-3 rounded-lg ' + color + '"><i data-lucide="' + icon + '" class="w-6 h-6"></i></div></div>';
+        }
+
+        function openDetail(id) {
+            const ot = FleetApp.hydrateOt(FleetApp.findOt(id));
+            document.getElementById("det-title").textContent = ot.id + " · " + ot.clientName;
+            document.getElementById("det-body").innerHTML =
+                '<p><span class="text-slate-500">Ruta:</span> ' + ot.origin + ' → ' + ot.destination + '</p>' +
+                '<p><span class="text-slate-500">Contenedor:</span> ' + ot.container + ' (' + ot.containerType + ') · Sello ' + ot.seal + '</p>' +
+                '<p><span class="text-slate-500">Devolución:</span> ' + ot.returnDepot + ' antes del ' + ot.returnDeadline + '</p>' +
+                '<p><span class="text-slate-500">Unidad:</span> ' + ot.truckLabel + ' / ' + ot.driverName + '</p>' +
+                '<p><span class="text-slate-500">Tarifa / costo / viático:</span> ' + FleetApp.formatCLP(ot.tarifa) + ' / ' + FleetApp.formatCLP(ot.costo) + ' / ' + FleetApp.formatCLP(ot.viatico) + '</p>' +
+                '<p><span class="text-slate-500">Notas:</span> ' + (ot.notes || "—") + '</p>';
+            const acts = [];
+            if (ot.status === "programada") acts.push(btnAct("Iniciar tránsito", "transito"));
+            if (ot.status === "transito") acts.push('<a class="px-3 py-2 text-xs border rounded-lg" href="pantalla_gps.html?ot=' + ot.id + '">Ver en GPS</a>');
+            if (ot.status !== "anulada" && ot.status !== "cerrada") acts.push(btnAct("Cancelar OT", "anulada"));
+            acts.push('<button type="button" class="px-3 py-2 text-xs border rounded-lg" id="copy-trk">Copiar tracking cliente</button>');
+            document.getElementById("det-actions").innerHTML = acts.join("");
+            const copy = document.getElementById("copy-trk");
+            if (copy) copy.addEventListener("click", function () {
+                FleetApp.copyText(location.origin + location.pathname.replace("pantalla_operaciones.html", FleetApp.trackingUrl(ot)));
+            });
+            document.querySelectorAll("[data-status]").forEach(function (b) {
+                b.addEventListener("click", function () {
+                    const r = FleetApp.setOtStatus(ot.id, b.getAttribute("data-status"));
+                    if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+                    FleetApp.toast("Estado actualizado", "ok");
+                    FleetApp.closeModal("modal-detail");
+                    render();
+                });
+            });
+            FleetApp.openModal("modal-detail");
+            FleetApp.icons();
+        }
+
+        function btnAct(label, status) {
+            return '<button type="button" data-status="' + status + '" class="px-3 py-2 text-xs bg-slate-900 text-white rounded-lg font-semibold">' + label + '</button>';
+        }
+
+        render();
+    </script>
+</body>
+</html>

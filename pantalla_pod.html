@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Validación POD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-app text-slate-800 antialiased">
+    <div class="flex h-screen overflow-hidden">
+        <aside id="fc-sidebar" class="w-64 bg-slate-900 text-slate-300 flex flex-col justify-between"></aside>
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <header class="fc-header h-16 border-b border-slate-200 bg-white flex items-center justify-between px-6">
+                <div class="flex items-center gap-3">
+                    <h2 class="text-xl font-bold text-slate-900">Revisión y Validación POD</h2>
+                    <span id="badge" class="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-semibold">0 pendientes</span>
+                </div>
+                <select id="f-status" class="border border-slate-300 text-sm rounded-lg px-3 py-2">
+                    <option value="revision">En revisión</option>
+                    <option value="todos">Todos</option>
+                    <option value="ok">Aprobados</option>
+                    <option value="rechazado">Rechazados</option>
+                </select>
+            </header>
+            <div class="p-6 flex gap-6 flex-1 overflow-hidden">
+                <div class="w-1/3 bg-white rounded-xl border flex flex-col overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50">
+                        <h3 class="font-bold text-sm">Documentos recientes</h3>
+                        <p class="text-xs text-slate-500">Subidos desde la app del chofer</p>
+                    </div>
+                    <div id="list" class="flex-1 overflow-y-auto divide-y"></div>
+                </div>
+                <div class="flex-1 bg-white rounded-xl border flex flex-col overflow-hidden">
+                    <div class="p-4 border-b bg-slate-50 flex justify-between items-start gap-3">
+                        <div>
+                            <h3 id="v-title" class="font-bold">Selecciona una OT</h3>
+                            <p id="v-sub" class="text-xs text-slate-500"></p>
+                        </div>
+                        <div id="v-actions" class="flex gap-2"></div>
+                    </div>
+                    <div class="px-4 py-2 border-b flex gap-2 flex-wrap" id="doc-tabs"></div>
+                    <div id="viewer" class="flex-1 fc-pod-canvas p-6 flex items-center justify-center overflow-auto relative">
+                        <p class="text-slate-500 text-sm">Elige un documento a la izquierda</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+    <div id="modal-rej" class="hidden fixed inset-0 z-50 bg-slate-900/50 flex items-center justify-center p-4">
+        <form id="form-rej" class="bg-white rounded-2xl w-full max-w-md p-6 space-y-3">
+            <h3 class="font-bold">Rechazar documento</h3>
+            <select name="reason" class="w-full border rounded-lg px-3 py-2 text-sm">
+                <option>Foto ilegible / borrosa</option>
+                <option>Falta firma o timbre de recepción</option>
+                <option>N° de guía no coincide con la OT</option>
+                <option>Contenedor o sello no visible</option>
+            </select>
+            <div class="flex justify-end gap-2">
+                <button type="button" data-close="modal-rej" class="px-3 py-2 text-sm border rounded-lg">Cancelar</button>
+                <button class="px-3 py-2 text-sm bg-red-600 text-white rounded-lg font-semibold">Rechazar</button>
+            </div>
+        </form>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        const session = FleetApp.requireAuth(["admin", "operaciones"]);
+        if (!session) throw new Error("auth");
+        FleetApp.renderSidebar("pod");
+        FleetApp.bindModalDismiss();
+        let selected = "OT-1047";
+        let docType = "guia";
+        let zoom = 1;
+        let rot = 0;
+
+        document.getElementById("f-status").addEventListener("change", render);
+        document.getElementById("form-rej").addEventListener("submit", function (e) {
+            e.preventDefault();
+            const r = FleetApp.reviewDoc(selected, docType, false, new FormData(e.target).get("reason"));
+            FleetApp.closeModal("modal-rej");
+            if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+            FleetApp.toast("Documento rechazado. El chofer debe volver a subir.", "warn");
+            render();
+        });
+
+        function listOts() {
+            const db = FleetApp.load();
+            const f = document.getElementById("f-status").value;
+            return db.ots.map(function (o) { return FleetApp.hydrateOt(o, db); }).filter(function (o) {
+                if (o.status === "programada" || o.status === "anulada") return false;
+                if (f === "todos") return true;
+                return o.pod === f || (f === "revision" && (o.pod === "revision" || o.pod === "falta_foto"));
+            });
+        }
+
+        function render() {
+            const items = listOts();
+            const pending = FleetApp.load().ots.map(function (o) { return FleetApp.hydrateOt(o); }).filter(function (o) { return o.pod === "revision" || o.pod === "falta_foto"; }).length;
+            document.getElementById("badge").textContent = pending + " pendientes de aprobación";
+            if (!items.some(function (o) { return o.id === selected; }) && items[0]) selected = items[0].id;
+            document.getElementById("list").innerHTML = items.map(function (o) {
+                const on = o.id === selected;
+                const guia = (o.docs.find(function (d) { return d.type === "guia"; }) || {}).guia || "—";
+                return '<div data-id="' + o.id + '" class="p-4 cursor-pointer ' + (on ? "bg-emerald-50/60 border-l-4 border-emerald-500" : "hover:bg-slate-50") + '">' +
+                    '<div class="flex justify-between"><span class="font-bold text-sm">' + o.id + '</span><span class="text-[10px] font-bold px-2 py-0.5 rounded ' + FleetApp.docStatusMeta(o.pod === "ok" ? "aprobado" : o.pod === "rechazado" ? "rechazado" : "cargado").cls + '">' + FleetApp.podMeta(o.pod).label + '</span></div>' +
+                    '<p class="text-xs font-semibold mt-1">' + o.clientName + '</p><p class="text-xs text-slate-500">Guía #' + guia + ' · ' + o.driverName + '</p></div>';
+            }).join("") || '<p class="p-4 text-sm text-slate-400">Sin documentos</p>';
+            document.querySelectorAll("#list [data-id]").forEach(function (el) {
+                el.addEventListener("click", function () { selected = el.getAttribute("data-id"); docType = "guia"; render(); });
+            });
+            const ot = items.find(function (o) { return o.id === selected; });
+            if (!ot) return;
+            document.getElementById("v-title").textContent = "Revisión " + ot.id;
+            document.getElementById("v-sub").textContent = ot.clientName + " · " + ot.container + " · " + ot.driverName;
+            document.getElementById("doc-tabs").innerHTML = ot.docs.map(function (d) {
+                const on = d.type === docType;
+                return '<button data-doc="' + d.type + '" class="text-xs px-3 py-1.5 rounded-lg border ' + (on ? "bg-slate-900 text-white" : "bg-white") + '">' + d.label.split(" ")[0] + (d.required ? " *" : "") + " · " + FleetApp.docStatusMeta(d.status).label + "</button>";
+            }).join("");
+            document.querySelectorAll("#doc-tabs [data-doc]").forEach(function (b) {
+                b.addEventListener("click", function () { docType = b.getAttribute("data-doc"); render(); });
+            });
+            const doc = ot.docs.find(function (d) { return d.type === docType; }) || ot.docs[0];
+            const canReview = doc.status === "cargado";
+            document.getElementById("v-actions").innerHTML = canReview
+                ? '<button id="btn-rej" class="px-3 py-1.5 border border-red-200 text-red-600 bg-red-50 rounded-lg text-xs font-bold">Rechazar</button><button id="btn-ok" class="px-4 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-bold">Aprobar y habilitar cobro</button>'
+                : '<span class="text-xs text-slate-500">' + FleetApp.docStatusMeta(doc.status).label + "</span>";
+            const ok = document.getElementById("btn-ok");
+            if (ok) ok.addEventListener("click", function () {
+                const r = FleetApp.reviewDoc(ot.id, doc.type, true);
+                if (!r.ok) { FleetApp.toast(r.error, "err"); return; }
+                FleetApp.toast(FleetApp.requiredDocsOk(r.ot) ? "POD OK. OT cerrada para facturar." : "Documento aprobado", "ok");
+                render();
+            });
+            const rj = document.getElementById("btn-rej");
+            if (rj) rj.addEventListener("click", function () { FleetApp.openModal("modal-rej"); });
+            document.getElementById("viewer").innerHTML =
+                '<div class="fc-pod-toolbar">' +
+                '<button id="z-out" class="w-9 h-9 rounded-full hover:bg-slate-100" title="Alejar"><i data-lucide="zoom-out" class="w-4 h-4"></i></button>' +
+                '<button id="z-in" class="w-9 h-9 rounded-full hover:bg-slate-100" title="Acercar"><i data-lucide="zoom-in" class="w-4 h-4"></i></button>' +
+                '<button id="z-rot" class="w-9 h-9 rounded-full hover:bg-slate-100" title="Rotar"><i data-lucide="rotate-cw" class="w-4 h-4"></i></button>' +
+                '<button id="z-reset" class="w-9 h-9 rounded-full hover:bg-slate-100" title="Restablecer"><i data-lucide="rotate-ccw" class="w-4 h-4"></i></button>' +
+                '</div>' +
+                '<div id="paper" class="fc-pod-paper p-6 rounded-sm max-w-md w-full aspect-[3/4] flex flex-col justify-between text-slate-800">' +
+                (doc.preview && doc.preview.indexOf("image") !== -1
+                    ? '<img src="' + doc.preview + '" class="w-full h-full object-contain">'
+                    : '<div class="border-b-2 border-slate-800 pb-3"><h4 class="font-bold text-lg uppercase">' + doc.label + '</h4><p class="text-[10px] text-slate-500">' + (doc.guia ? "N° " + doc.guia : ot.id) + '</p></div>' +
+                      '<div class="text-xs space-y-2 py-4 flex-1"><p><strong>Señor(es):</strong> ' + ot.clientName + '</p><p><strong>Contenedor:</strong> ' + ot.container + ' · Sello ' + ot.seal + '</p><p><strong>Transportista:</strong> ' + ot.driverName + ' (' + ot.plate + ')</p><p><strong>Archivo:</strong> ' + (doc.fileName || "sin carga") + '</p></div>' +
+                      '<div class="border-t pt-3"><div class="bg-amber-50 border border-amber-200 p-3 rounded text-center"><p class="text-[10px] font-bold text-slate-500">TIMBRE Y FIRMA</p><div class="font-serif italic font-bold text-lg">' + (doc.receiver || "Pendiente de recepción") + '</div></div></div>') +
+                "</div>";
+            document.getElementById("z-in").onclick = function () { zoom += 0.1; applyT(); };
+            document.getElementById("z-out").onclick = function () { zoom = Math.max(0.6, zoom - 0.1); applyT(); };
+            document.getElementById("z-rot").onclick = function () { rot += 90; applyT(); };
+            document.getElementById("z-reset").onclick = function () { zoom = 1; rot = 0; applyT(); };
+            FleetApp.icons();
+        }
+        function applyT() {
+            const paper = document.getElementById("paper");
+            if (!paper) return;
+            paper.style.transition = "transform 0.2s ease";
+            paper.style.transform = "scale(" + zoom + ") rotate(" + rot + "deg)";
+        }
+        render();
+    </script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FleetControl — Operación de carga, de la OT al cobro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="fc-login-page text-slate-800 antialiased">
+    <div class="fc-login-bg" aria-hidden="true">
+        <div class="fc-login-orb fc-login-orb-a"></div>
+        <div class="fc-login-orb fc-login-orb-b"></div>
+        <div class="fc-login-orb fc-login-orb-c"></div>
+        <div class="fc-login-grid"></div>
+        <div class="fc-login-scan"></div>
+        <svg class="fc-login-map" viewBox="0 0 900 700" preserveAspectRatio="xMidYMid slice">
+            <defs>
+                <linearGradient id="routeGlow" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stop-color="#10b981" stop-opacity="0"/>
+                    <stop offset="50%" stop-color="#34d399" stop-opacity="1"/>
+                    <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+                </linearGradient>
+                <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+                    <feGaussianBlur stdDeviation="4" result="b"/>
+                    <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+            </defs>
+            <path class="fc-route" d="M 70 520 C 180 480, 210 360, 320 340 S 470 300, 560 220 S 720 140, 840 160" />
+            <path class="fc-route fc-route-dim" d="M 90 180 C 220 210, 280 300, 390 330 S 560 400, 640 470 S 760 560, 850 540" />
+            <path class="fc-route-flow" d="M 70 520 C 180 480, 210 360, 320 340 S 470 300, 560 220 S 720 140, 840 160" />
+            <g filter="url(#softGlow)">
+                <circle r="7" fill="#34d399">
+                    <animateMotion dur="14s" repeatCount="indefinite" rotate="auto">
+                        <mpath href="#flowPath"></mpath>
+                    </animateMotion>
+                </circle>
+            </g>
+            <path id="flowPath" d="M 70 520 C 180 480, 210 360, 320 340 S 470 300, 560 220 S 720 140, 840 160" fill="none"/>
+            <g class="fc-login-node" transform="translate(320 340)">
+                <circle r="18" class="fc-ping-ring"/>
+                <circle r="5" fill="#10b981"/>
+            </g>
+            <g class="fc-login-node" transform="translate(560 220)">
+                <circle r="22" class="fc-ping-ring" style="animation-delay:0.8s"/>
+                <circle r="5" fill="#34d399"/>
+            </g>
+            <g class="fc-login-node" transform="translate(840 160)">
+                <circle r="16" class="fc-ping-ring" style="animation-delay:1.4s"/>
+                <circle r="5" fill="#6ee7b7"/>
+            </g>
+            <g class="fc-truck-dot" transform="translate(0 0)">
+                <circle r="9" fill="#059669" stroke="#ecfdf5" stroke-width="2">
+                    <animateMotion dur="11s" repeatCount="indefinite">
+                        <mpath href="#flowPath"/>
+                    </animateMotion>
+                </circle>
+            </g>
+        </svg>
+    </div>
+
+    <div class="relative z-10 min-h-screen grid lg:grid-cols-[1.15fr_0.85fr]">
+        <section class="hidden lg:flex flex-col justify-between p-12 xl:p-16 text-white">
+            <div class="flex items-center gap-3">
+                <div class="bg-emerald-400 p-2.5 rounded-xl text-slate-950 shadow-[0_0_24px_rgba(52,211,153,0.45)]">
+                    <i data-lucide="truck" class="w-7 h-7"></i>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-xl leading-none tracking-tight">FleetControl</h1>
+                    <p class="text-[11px] text-emerald-300/80 mt-1 uppercase tracking-[0.18em]">Sistema de Carga · Chile</p>
+                </div>
+            </div>
+
+            <div class="max-w-xl space-y-8">
+                <div>
+                    <p class="text-emerald-400 text-xs font-semibold uppercase tracking-[0.22em] mb-3">De la OT al cobro, sin papeles perdidos</p>
+                    <h2 class="text-4xl xl:text-[2.75rem] font-extrabold leading-[1.12] tracking-tight">
+                        La torre de control que tu flota de contenedores ya necesitaba.
+                    </h2>
+                    <p class="text-slate-300/90 text-[15px] leading-relaxed mt-4 max-w-lg">
+                        Programa el viaje, sigue el camión en GPS, valida el POD con foto y recién entonces facturas y liquidas. Un solo flujo para operaciones, finanzas, chofer y cliente.
+                    </p>
+                </div>
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="fc-login-kpi">
+                        <p class="fc-login-kpi-val">OT → POD</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Cierre documental</p>
+                    </div>
+                    <div class="fc-login-kpi">
+                        <p class="fc-login-kpi-val">GPS live</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Tracking al cliente</p>
+                    </div>
+                    <div class="fc-login-kpi">
+                        <p class="fc-login-kpi-val">Cobro OK</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Sin guía, no se paga</p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2 text-[11px] font-semibold text-slate-300">
+                    <span class="fc-login-chip"><i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i> Dashboard</span>
+                    <span class="fc-login-chip"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Bermann GPS</span>
+                    <span class="fc-login-chip"><i data-lucide="file-check-2" class="w-3.5 h-3.5"></i> Visor POD</span>
+                    <span class="fc-login-chip"><i data-lucide="smartphone" class="w-3.5 h-3.5"></i> App chofer / cliente</span>
+                </div>
+            </div>
+
+            <p class="text-xs text-slate-500">Demo comercial · clave <span class="text-slate-300 font-semibold">demo123</span></p>
+        </section>
+
+        <section class="flex items-center justify-center p-5 sm:p-8 lg:p-10">
+            <div class="w-full max-w-[420px]">
+                <div class="lg:hidden flex items-center gap-3 text-white mb-6">
+                    <div class="bg-emerald-400 p-2 rounded-xl text-slate-950"><i data-lucide="truck" class="w-5 h-5"></i></div>
+                    <div>
+                        <p class="font-extrabold leading-none">FleetControl</p>
+                        <p class="text-[10px] text-emerald-300 mt-1 uppercase tracking-widest">Sistema de Carga</p>
+                    </div>
+                </div>
+                <div class="fc-login-card rounded-3xl p-7 sm:p-8">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Entrar a la demo</p>
+                    <h2 class="text-2xl font-extrabold tracking-tight text-slate-900 mt-1">Mira el producto en acción</h2>
+                    <p class="text-xs text-slate-500 mt-1.5">Elige canal y perfil. En 10 segundos estás dentro del flujo real.</p>
+                    <div class="grid grid-cols-2 gap-3 mt-5">
+                        <button type="button" data-mode="web" class="mode-btn mode-card active rounded-2xl p-4 text-left">
+                            <i data-lucide="monitor" class="w-6 h-6 text-emerald-600 mb-2"></i>
+                            <p class="font-bold text-slate-900">Versión web</p>
+                            <p class="text-[11px] text-slate-500 mt-1">Torre de control</p>
+                        </button>
+                        <button type="button" data-mode="mobile" class="mode-btn mode-card rounded-2xl p-4 text-left">
+                            <i data-lucide="smartphone" class="w-6 h-6 text-emerald-600 mb-2"></i>
+                            <p class="font-bold text-slate-900">Versión móvil</p>
+                            <p class="text-[11px] text-slate-500 mt-1">Chofer y cliente</p>
+                        </button>
+                    </div>
+
+                    <form id="login-form" class="mt-6 space-y-3.5">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Correo</label>
+                            <input id="email" type="email" required autocomplete="username" placeholder="admin@transporte.cl" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1.5">Contraseña</label>
+                            <input id="password" type="password" required value="demo123" autocomplete="current-password" class="w-full border border-slate-300 rounded-lg px-3 py-2.5 text-sm">
+                        </div>
+                        <p id="login-error" class="hidden text-xs font-medium text-red-600"></p>
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm py-2.5 rounded-lg">Entrar a la versión <span id="mode-label">web</span></button>
+                    </form>
+
+                    <div class="mt-5">
+                        <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Entra como</p>
+                        <div class="grid grid-cols-1 gap-1.5">
+                            <button type="button" data-fill="admin@transporte.cl" class="demo-user w-full text-left border border-slate-200 rounded-xl px-3 py-2">
+                                <p class="text-sm font-semibold text-slate-800">Patricia Núñez · Administrador</p>
+                                <p class="text-[11px] text-slate-500">Ve el dashboard y toda la operación</p>
+                            </button>
+                            <button type="button" data-fill="operaciones@transporte.cl" class="demo-user w-full text-left border border-slate-200 rounded-xl px-3 py-2">
+                                <p class="text-sm font-semibold text-slate-800">María Soto · Operaciones</p>
+                                <p class="text-[11px] text-slate-500">OT, GPS y validación POD</p>
+                            </button>
+                            <button type="button" data-fill="finanzas@transporte.cl" class="demo-user w-full text-left border border-slate-200 rounded-xl px-3 py-2">
+                                <p class="text-sm font-semibold text-slate-800">Andrés Fuentes · Finanzas</p>
+                                <p class="text-[11px] text-slate-500">Factura solo con POD OK</p>
+                            </button>
+                            <div class="grid grid-cols-2 gap-1.5">
+                                <button type="button" data-fill="chofer@transporte.cl" class="demo-user text-left border border-slate-200 rounded-xl px-3 py-2">
+                                    <p class="text-sm font-semibold text-slate-800">Chofer</p>
+                                    <p class="text-[11px] text-slate-500">App de viaje</p>
+                                </button>
+                                <button type="button" data-fill="cliente@forestal.cl" class="demo-user text-left border border-slate-200 rounded-xl px-3 py-2">
+                                    <p class="text-sm font-semibold text-slate-800">Cliente</p>
+                                    <p class="text-[11px] text-slate-500">Tracking</p>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4 flex items-center justify-between text-xs text-slate-400">
+                    <button type="button" id="reset-demo" class="hover:text-white">Restaurar datos demo</button>
+                    <a href="pantalla_tracking.html?token=trk-forestal48" class="hover:text-white">Ver tracking público</a>
+                </div>
+            </div>
+        </section>
+    </div>
+    <script src="js/app.js"></script>
+    <script>
+        lucide.createIcons();
+        let mode = FleetApp.getMode() || "web";
+        function paintMode() {
+            document.querySelectorAll(".mode-btn").forEach(function (b) {
+                b.classList.toggle("active", b.getAttribute("data-mode") === mode);
+            });
+            document.getElementById("mode-label").textContent = mode === "mobile" ? "móvil" : "web";
+            FleetApp.setMode(mode);
+        }
+        paintMode();
+        document.querySelectorAll(".mode-btn").forEach(function (b) {
+            b.addEventListener("click", function () { mode = b.getAttribute("data-mode"); paintMode(); });
+        });
+        const session = FleetApp.getSession();
+        if (session) window.location.href = session.home;
+        document.querySelectorAll(".demo-user").forEach(function (btn) {
+            btn.addEventListener("click", function () {
+                document.getElementById("email").value = btn.getAttribute("data-fill");
+                document.getElementById("password").value = "demo123";
+            });
+        });
+        document.getElementById("login-form").addEventListener("submit", function (e) {
+            e.preventDefault();
+            const err = document.getElementById("login-error");
+            const result = FleetApp.login(document.getElementById("email").value, document.getElementById("password").value, mode);
+            if (!result.ok) { err.textContent = result.error; err.classList.remove("hidden"); return; }
+            window.location.href = result.session.home;
+        });
+        document.getElementById("reset-demo").addEventListener("click", function () { FleetApp.resetDemo(); });
+    </script>
+</body>
+</html>
